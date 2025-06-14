@@ -1,0 +1,165 @@
+Attendance Management System - Product Requirements Document
+1. Product Overview
+1.1 Product Vision
+A comprehensive web-based attendance management system designed for educational institutions, enabling teachers to efficiently track student attendance, manage classes, generate reports, and facilitate student-teacher consultations.
+
+1.2 Product Goals
+Streamline attendance tracking and reporting processes
+Provide real-time attendance analytics and insights
+Enable seamless communication between teachers and students
+Maintain comprehensive academic records and performance tracking
+2. Target Users
+2.1 Primary Users
+Teachers/Instructors: Manage classes, track attendance, generate reports, schedule consultations
+Students: View attendance records, book consultations, access academic information
+2.2 User Personas
+Professor Smith: Experienced educator managing multiple classes, needs efficient attendance tracking
+Student Alice: Undergraduate student requiring access to attendance records and consultation booking
+3. Core Features & Requirements
+3.1 Authentication & User Management
+Teacher Login: Secure authentication with role-based access
+Student Portal: Separate login interface for students
+Session Management: Persistent login sessions with logout functionality
+3.2 Dashboard & Navigation
+Teacher Dashboard: Overview of classes, attendance statistics, quick actions
+Sidebar Navigation: Consistent navigation across all pages
+Responsive Design: Mobile-friendly interface
+3.3 Class Management
+Class Creation: Add new classes with schedules, capacity, and room assignments
+Class Listing: View all classes with enrollment statistics
+Class Editing: Modify class details and schedules
+3.4 Student Management
+Student Registration: Add students with personal and academic information
+Student Profiles: Comprehensive student records with attendance history
+Student Search & Filtering: Find students by name, ID, class, or status
+3.5 Attendance Tracking
+Manual Attendance: Mark students present/absent individually
+Bulk Operations: Mark all present or reset attendance
+Real-time Summary: Live attendance statistics and percentages
+Attendance History: Chronological attendance records
+3.6 Reporting & Analytics
+Attendance Reports: Detailed attendance statistics by class, student, or time period
+Visual Analytics: Charts and graphs showing attendance trends
+Export Functionality: PDF and Excel export capabilities
+Performance Metrics: Overall attendance rates and class performance
+3.7 Consultation Management
+Availability Management: Teachers set their available consultation hours
+Booking System: Students request consultation appointments
+Approval Workflow: Teachers approve/reject consultation requests
+Calendar Integration: Visual calendar showing scheduled consultations
+3.8 Student Portal Features
+Personal Dashboard: Student's attendance overview and academic progress
+Grade Tracking: View assignment scores and overall performance
+Consultation Booking: Request meetings with teachers
+Attendance Calendar: Visual representation of attendance history
+4. Technical Requirements
+4.1 Frontend Technology Stack
+Framework: React 18+ with TypeScript
+Build Tool: Vite
+Styling: Tailwind CSS with shadcn/ui components
+Routing: React Router DOM
+State Management: React hooks and context
+Charts: Recharts for data visualization
+4.2 UI/UX Requirements
+Design System: Consistent component library using shadcn/ui
+Responsive Design: Mobile-first approach with responsive breakpoints
+Accessibility: WCAG 2.1 AA compliance
+Color Scheme: USTP brand colors (Navy blue, Gold)
+Typography: Clear, readable fonts with proper hierarchy
+4.3 Performance Requirements
+Load Time: Initial page load under 3 seconds
+Navigation: Instant page transitions
+Data Updates: Real-time attendance updates
+Scalability: Support for 500+ concurrent users
+5. User Experience Requirements
+5.1 Navigation Flow
+Login → Dashboard → Class/Student/Reports/Consultations
+Student Portal: Login → Dashboard → Grades/Consultations/Attendance
+5.2 Key User Journeys
+Teacher taking attendance: Dashboard → Attendance → Select Class → Mark Students → Save
+Student viewing grades: Student Login → Dashboard → View Grades/Attendance
+Booking consultation: Student Portal → Consultations → Select Teacher → Book Slot
+5.3 Error Handling
+Graceful error messages for user actions
+Form validation with clear feedback
+Network error handling with retry options
+6. Data Requirements
+6.1 Core Data Models
+
+Teacher: {
+  id, name, email, classes[], consultationHours[]
+}
+
+Student: {
+  id, name, email, studentId, class, year, attendanceRate, grades[]
+}
+
+Class: {
+  id, name, code, schedule, studentsEnrolled, maxStudents, room, semester
+}
+
+AttendanceRecord: {
+  id, studentId, classId, date, status, timestamp
+}
+
+Consultation: {
+  id, teacherId, studentId, dateTime, status, purpose, duration
+}
+6.2 Data Storage
+Local state management for UI components
+Mock data for demonstration purposes
+Future integration ready for backend database
+7. Security Requirements
+7.1 Authentication
+Secure login with password protection
+Role-based access control (Teacher vs Student)
+Session timeout after inactivity
+7.2 Data Protection
+Input validation and sanitization
+Secure data handling practices
+Privacy protection for student information
+8. Integration Requirements
+8.1 Future Integrations
+Mobile App: Facial recognition attendance (noted for mobile implementation)
+Backend Database: Supabase integration for data persistence
+Email System: Consultation notifications and reminders
+Export Systems: PDF/Excel generation services
+9. Success Metrics
+9.1 User Adoption
+Teacher login frequency and session duration
+Student portal engagement rates
+Feature usage statistics
+9.2 System Performance
+Attendance tracking accuracy
+Report generation speed
+User satisfaction scores
+10. Development Phases
+Phase 1 (Current): Core Features
+✅ Authentication system
+✅ Dashboard and navigation
+✅ Basic attendance tracking
+✅ Student and class management
+✅ Reports and analytics
+✅ Consultation system
+✅ Student portal
+Phase 2 (Future): Enhancements
+Backend integration with Supabase
+Advanced reporting features
+Mobile app with facial recognition
+Real-time notifications
+Email integration
+Phase 3 (Future): Advanced Features
+AI-powered attendance insights
+Automated report scheduling
+Integration with LMS systems
+Advanced analytics dashboard
+11. Constraints & Assumptions
+11.1 Technical Constraints
+Web-based application only (no mobile app in current phase)
+Client-side data storage (no backend in current phase)
+Limited to React/TypeScript technology stack
+11.2 Business Constraints
+Educational institution use case
+Teacher-student relationship model
+Semester-based academic calendar
+This PRD serves as a comprehensive guide for developing and maintaining the attendance management system, ensuring all stakeholders understand the system's capabilities, requirements, and future roadmap.
