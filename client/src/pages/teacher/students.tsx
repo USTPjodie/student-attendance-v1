@@ -66,7 +66,7 @@ export default function StudentsScreen() {
                     <SelectValue placeholder="Filter by class" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All Classes</SelectItem>
+                    <SelectItem value="all">All Classes</SelectItem>
                     {classes?.map((cls: any) => (
                       <SelectItem key={cls.id} value={cls.id.toString()}>
                         {cls.code} - {cls.name}

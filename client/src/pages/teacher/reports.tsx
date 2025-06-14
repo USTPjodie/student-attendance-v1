@@ -81,7 +81,7 @@ export default function ReportsScreen() {
                       <SelectValue placeholder="All Classes" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Classes</SelectItem>
+                      <SelectItem value="all">All Classes</SelectItem>
                       {classes?.map((cls: any) => (
                         <SelectItem key={cls.id} value={cls.id.toString()}>
                           {cls.code} - {cls.name}

@@ -5,6 +5,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,6 +93,9 @@ export default function ClassModal({ isOpen, onClose, editingClass }: ClassModal
           <DialogTitle>
             {editingClass ? "Edit Class" : "Add New Class"}
           </DialogTitle>
+          <DialogDescription>
+            {editingClass ? "Update class information" : "Create a new class for your course"}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
