@@ -63,14 +63,29 @@ export const consultations = pgTable("consultations", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const grades = pgTable("grades", {
+// Assignments table for class activities
+export const assignments = pgTable("assignments", {
   id: serial("id").primaryKey(),
   classId: integer("class_id").references(() => classes.id).notNull(),
-  studentId: integer("student_id").references(() => students.id).notNull(),
-  assignmentName: text("assignment_name").notNull(),
-  score: decimal("score", { precision: 5, scale: 2 }).notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  type: text("type").notNull(), // "quiz", "exam", "assignment", "project", "participation"
   maxScore: decimal("max_score", { precision: 5, scale: 2 }).notNull(),
+  weight: decimal("weight", { precision: 3, scale: 2 }).default("1.00"), // Weight for final grade calculation
+  dueDate: timestamp("due_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Grades table for individual student scores
+export const grades = pgTable("grades", {
+  id: serial("id").primaryKey(),
+  assignmentId: integer("assignment_id").references(() => assignments.id).notNull(),
+  studentId: integer("student_id").references(() => students.id).notNull(),
+  score: decimal("score", { precision: 5, scale: 2 }).notNull(),
+  letterGrade: text("letter_grade"),
+  comments: text("comments"),
   gradedAt: timestamp("graded_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Insert schemas
@@ -98,6 +113,11 @@ export const insertConsultationSchema = createInsertSchema(consultations).omit({
   createdAt: true,
 });
 
+export const insertAssignmentSchema = createInsertSchema(assignments).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertGradeSchema = createInsertSchema(grades).omit({
   id: true,
   gradedAt: true,
@@ -114,5 +134,7 @@ export type AttendanceRecord = typeof attendanceRecords.$inferSelect;
 export type InsertAttendanceRecord = z.infer<typeof insertAttendanceSchema>;
 export type Consultation = typeof consultations.$inferSelect;
 export type InsertConsultation = z.infer<typeof insertConsultationSchema>;
+export type Assignment = typeof assignments.$inferSelect;
+export type InsertAssignment = z.infer<typeof insertAssignmentSchema>;
 export type Grade = typeof grades.$inferSelect;
 export type InsertGrade = z.infer<typeof insertGradeSchema>;
