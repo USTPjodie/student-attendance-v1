@@ -24,12 +24,12 @@ export default function StudentsScreen() {
     queryKey: ["/api/classes"],
   });
 
-  const filteredStudents = students?.filter((student: any) => {
-    const matchesSearch = `${student.user?.firstName} ${student.user?.lastName} ${student.studentId}`
+  const filteredStudents = Array.isArray(students) ? students.filter((student: any) => {
+    const matchesSearch = `${student.user?.firstName || ''} ${student.user?.lastName || ''} ${student.studentId || ''}`
       .toLowerCase()
       .includes(searchTerm.toLowerCase());
     return matchesSearch;
-  });
+  }) : [];
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -67,7 +67,7 @@ export default function StudentsScreen() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Classes</SelectItem>
-                    {classes?.map((cls: any) => (
+                    {Array.isArray(classes) && classes.map((cls: any) => (
                       <SelectItem key={cls.id} value={cls.id.toString()}>
                         {cls.code} - {cls.name}
                       </SelectItem>
