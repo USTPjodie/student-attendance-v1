@@ -1,15 +1,38 @@
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import ws from "ws";
-import * as schema from "@shared/schema";
+import mysql from 'mysql2/promise';
+import { drizzle } from 'drizzle-orm/mysql2';
+import * as schema from '@shared/schema';
 
-neonConfig.webSocketConstructor = ws;
+// Database connection configuration
+const connection = await mysql.createConnection({
+  host: 'localhost',
+  port: 3306,
+  user: 'root',
+  password: '', // Empty password since we connected successfully with no password
+  database: 'student_attendance',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
 
-if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
-  );
+// Create drizzle instance
+export const db = drizzle(connection, { schema, mode: 'default' });
+
+// Export raw connection for direct queries
+export { connection };
+
+// Test database connection
+try {
+  await connection.connect();
+  console.log('Successfully connected to MariaDB database on port 3306');
+  
+  // Test query to verify table exists
+  const [tables] = await connection.query('SHOW TABLES');
+  console.log('Available tables:', tables);
+  
+  // Test teacher_availability table
+  const [columns] = await connection.query('DESCRIBE teacher_availability');
+  console.log('Teacher availability table structure:', columns);
+} catch (error) {
+  console.error('Error connecting to MariaDB:', error);
+  process.exit(1);
 }
-
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-export const db = drizzle({ client: pool, schema });

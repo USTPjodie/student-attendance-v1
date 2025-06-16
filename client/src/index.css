@@ -3,59 +3,59 @@
 @tailwind utilities;
 
 :root {
-  --background: hsl(0, 0%, 100%);
-  --foreground: hsl(222, 84%, 4.9%);
-  --card: hsl(0, 0%, 100%);
-  --card-foreground: hsl(222, 84%, 4.9%);
-  --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(222, 84%, 4.9%);
-  --primary: hsl(217, 91%, 60%);
-  --primary-foreground: hsl(210, 40%, 98%);
-  --secondary: hsl(210, 40%, 96%);
-  --secondary-foreground: hsl(222, 84%, 4.9%);
-  --muted: hsl(210, 40%, 96%);
-  --muted-foreground: hsl(215, 13%, 65%);
-  --accent: hsl(210, 40%, 96%);
-  --accent-foreground: hsl(222, 84%, 4.9%);
-  --destructive: hsl(0, 84%, 60%);
-  --destructive-foreground: hsl(210, 40%, 98%);
-  --border: hsl(214, 32%, 91%);
-  --input: hsl(214, 32%, 91%);
-  --ring: hsl(217, 91%, 60%);
+  --background: 0 0% 100%;
+  --foreground: 222 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 84% 4.9%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 84% 4.9%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 13% 65%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222 84% 4.9%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 217 91% 60%;
   --radius: 0.5rem;
-  --chart-1: hsl(12, 76%, 61%);
-  --chart-2: hsl(173, 58%, 39%);
-  --chart-3: hsl(197, 37%, 24%);
-  --chart-4: hsl(43, 74%, 66%);
-  --chart-5: hsl(27, 87%, 67%);
+  --chart-1: 12 76% 61%;
+  --chart-2: 173 58% 39%;
+  --chart-3: 197 37% 24%;
+  --chart-4: 43 74% 66%;
+  --chart-5: 27 87% 67%;
   
   /* USTP Brand Colors */
-  --ustp-navy: hsl(217, 91%, 35%);
-  --ustp-navy-light: hsl(217, 91%, 45%);
-  --ustp-gold: hsl(38, 92%, 50%);
-  --ustp-gold-dark: hsl(32, 95%, 44%);
+  --ustp-navy: 217 91% 35%;
+  --ustp-navy-light: 217 91% 45%;
+  --ustp-gold: 38 92% 50%;
+  --ustp-gold-dark: 32 95% 44%;
 }
 
 .dark {
-  --background: hsl(222, 84%, 4.9%);
-  --foreground: hsl(210, 40%, 98%);
-  --card: hsl(222, 84%, 4.9%);
-  --card-foreground: hsl(210, 40%, 98%);
-  --popover: hsl(222, 84%, 4.9%);
-  --popover-foreground: hsl(210, 40%, 98%);
-  --primary: hsl(217, 91%, 60%);
-  --primary-foreground: hsl(222, 84%, 4.9%);
-  --secondary: hsl(217, 32%, 17%);
-  --secondary-foreground: hsl(210, 40%, 98%);
-  --muted: hsl(217, 32%, 17%);
-  --muted-foreground: hsl(215, 20%, 65%);
-  --accent: hsl(217, 32%, 17%);
-  --accent-foreground: hsl(210, 40%, 98%);
-  --destructive: hsl(0, 62%, 30%);
-  --destructive-foreground: hsl(210, 40%, 98%);
-  --border: hsl(217, 32%, 17%);
-  --input: hsl(217, 32%, 17%);
-  --ring: hsl(217, 91%, 60%);
+  --background: 222 84% 4.9%;
+  --foreground: 210 40% 98%;
+  --card: 222 84% 4.9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 222 84% 4.9%;
+  --secondary: 217 32% 17%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 32% 17%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 217 32% 17%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62% 30%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217 32% 17%;
+  --input: 217 32% 17%;
+  --ring: 217 91% 60%;
 }
 
 @layer base {
@@ -69,33 +69,33 @@
 
 @layer utilities {
   .bg-ustp-navy {
-    background-color: var(--ustp-navy);
+    background-color: hsl(var(--ustp-navy));
   }
   .bg-ustp-navy-light {
-    background-color: var(--ustp-navy-light);
+    background-color: hsl(var(--ustp-navy-light));
   }
   .bg-ustp-gold {
-    background-color: var(--ustp-gold);
+    background-color: hsl(var(--ustp-gold));
   }
   .bg-ustp-gold-dark {
-    background-color: var(--ustp-gold-dark);
+    background-color: hsl(var(--ustp-gold-dark));
   }
   .text-ustp-navy {
-    color: var(--ustp-navy);
+    color: hsl(var(--ustp-navy));
   }
   .text-ustp-navy-light {
-    color: var(--ustp-navy-light);
+    color: hsl(var(--ustp-navy-light));
   }
   .text-ustp-gold {
-    color: var(--ustp-gold);
+    color: hsl(var(--ustp-gold));
   }
   .text-ustp-gold-dark {
-    color: var(--ustp-gold-dark);
+    color: hsl(var(--ustp-gold-dark));
   }
   .border-ustp-navy {
-    border-color: var(--ustp-navy);
+    border-color: hsl(var(--ustp-navy));
   }
   .border-ustp-gold {
-    border-color: var(--ustp-gold);
+    border-color: hsl(var(--ustp-gold));
   }
 }

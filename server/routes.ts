@@ -2,6 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertUserSchema, insertClassSchema, insertAttendanceSchema, insertConsultationSchema } from "@shared/schema";
+import bcrypt from 'bcrypt';
+import { format } from 'date-fns';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
@@ -10,7 +12,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { email, password, role } = req.body;
       
       const user = await storage.getUserByEmail(email);
-      if (!user || user.password !== password || user.role !== role) {
+      if (!user || user.role !== role) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      // Compare password with hashed password
+      const passwordMatch = await bcrypt.compare(password, user.password);
+      if (!passwordMatch) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
@@ -133,6 +141,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/student/classes", async (req, res) => {
+    try {
+      const userId = (req as any).session?.userId;
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const student = await storage.getStudentByUserId(userId);
+      if (!student) {
+        return res.status(404).json({ message: "Student not found" });
+      }
+
+      const classes = await storage.getClassesByStudent(student.id);
+      res.json(classes);
+    } catch (error) {
+      console.error("Get student classes error:", error);
+      res.status(500).json({ message: "Failed to fetch student classes" });
+    }
+  });
+
   // Attendance routes
   app.get("/api/attendance", async (req, res) => {
     try {
@@ -196,7 +224,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let consultations;
       if (userRole === "teacher") {
-        consultations = await storage.getConsultationsByTeacher(userId);
+        const teacher = await storage.getTeacherByUserId(userId);
+        if (!teacher) {
+          return res.status(404).json({ message: "Teacher not found" });
+        }
+        consultations = await storage.getConsultationsByTeacher(teacher.id);
       } else {
         const student = await storage.getStudentByUserId(userId);
         if (!student) {
@@ -219,9 +251,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
+      const student = await storage.getStudentByUserId(userId);
+      if (!student) {
+        return res.status(404).json({ message: "Student not found" });
+      }
+
       const consultationData = insertConsultationSchema.parse({
         ...req.body,
-        dateTime: new Date(req.body.dateTime),
+        studentId: student.id,
+        status: "pending",
       });
 
       const consultation = await storage.createConsultation(consultationData);
@@ -246,6 +284,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Update consultation error:", error);
       res.status(500).json({ message: "Failed to update consultation" });
+    }
+  });
+
+  app.get("/api/consultations/booked-slots", async (req, res) => {
+    try {
+      const { teacherId, date } = req.query;
+      
+      if (!teacherId || !date) {
+        return res.status(400).json({ message: "Teacher ID and date are required" });
+      }
+
+      const bookedSlots = await storage.getBookedTimeSlots(
+        Number(teacherId),
+        new Date(date as string)
+      );
+
+      res.json(bookedSlots);
+    } catch (error) {
+      console.error("Get booked slots error:", error);
+      res.status(500).json({ message: "Failed to fetch booked slots" });
     }
   });
 
@@ -294,8 +352,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           for (const student of students) {
             const stats = await storage.getAttendanceStats(student.id);
-            totalAttendance += stats.rate;
-            attendanceCount++;
+            if (stats && typeof stats.rate === 'number') {
+              totalAttendance += stats.rate;
+              attendanceCount++;
+            }
           }
         }
 
@@ -317,10 +377,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const consultations = await storage.getConsultationsByStudent(student.id);
         const attendanceStats = await storage.getAttendanceStats(student.id);
 
+        // Ensure all values are defined before using them
+        const attendanceRate = attendanceStats && typeof attendanceStats.rate === 'number' 
+          ? attendanceStats.rate.toFixed(1) 
+          : "0.0";
+
         res.json({
-          attendanceRate: attendanceStats.rate.toFixed(1),
+          attendanceRate,
           classCount: 5, // Mock data
-          gpa: student.gpa,
+          gpa: student.gpa || 0,
           consultations: consultations.length,
           grades: grades.length,
         });
@@ -328,6 +393,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Get dashboard stats error:", error);
       res.status(500).json({ message: "Failed to fetch dashboard stats" });
+    }
+  });
+
+  // Teacher availability routes
+  app.get("/api/availability", async (req, res) => {
+    try {
+      const userId = (req as any).session?.userId;
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const availability = await storage.getTeacherAvailability(userId);
+      res.json(availability);
+    } catch (error) {
+      console.error("Get availability error:", error);
+      res.status(500).json({ message: "Failed to fetch availability" });
+    }
+  });
+
+  app.post("/api/availability", async (req, res) => {
+    try {
+      const userId = (req as any).session?.userId;
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const timeSlots = req.body.timeSlots;
+      if (!timeSlots || !Array.isArray(timeSlots)) {
+        return res.status(400).json({ message: "Invalid request: timeSlots array is required" });
+      }
+
+      console.log("Received availability update request:", {
+        userId,
+        timeSlots
+      });
+
+      const availability = await storage.updateTeacherAvailability(userId, timeSlots);
+      res.json(availability);
+    } catch (error) {
+      console.error("Update availability error:", error);
+      if (error instanceof Error) {
+        res.status(500).json({ message: error.message });
+      } else {
+        res.status(500).json({ message: "Failed to update availability" });
+      }
+    }
+  });
+
+  app.get("/api/availability/:teacherId/slots", async (req, res) => {
+    try {
+      const { teacherId } = req.params;
+      const { date } = req.query;
+
+      if (!date) {
+        return res.status(400).json({ message: "Date parameter is required" });
+      }
+
+      const availableSlots = await storage.getAvailableTimeSlots(
+        Number(teacherId),
+        new Date(date as string)
+      );
+      res.json(availableSlots);
+    } catch (error) {
+      console.error("Get available slots error:", error);
+      res.status(500).json({ message: "Failed to fetch available slots" });
+    }
+  });
+
+  // Get all teachers
+  app.get("/api/teachers", async (req, res) => {
+    try {
+      const teachers = await storage.getTeachers();
+      res.json(teachers);
+    } catch (error) {
+      console.error("Error fetching teachers:", error);
+      res.status(500).json({ error: "Failed to fetch teachers" });
+    }
+  });
+
+  // Get teacher availability for a specific date
+  app.get("/api/teacher-availability/:teacherId", async (req, res) => {
+    try {
+      const { teacherId } = req.params;
+      const { date } = req.query;
+
+      if (!date) {
+        return res.status(400).json({ error: "Date parameter is required" });
+      }
+
+      const availableSlots = await storage.getAvailableTimeSlots(
+        Number(teacherId),
+        new Date(date as string)
+      );
+      res.json(availableSlots);
+    } catch (error) {
+      console.error("Error fetching teacher availability:", error);
+      res.status(500).json({ error: "Failed to fetch teacher availability" });
     }
   });
 

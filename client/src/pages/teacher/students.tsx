@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import StudentModal from "@/components/modals/student-modal";
+import { BulkUploadModal } from "@/components/modals/BulkUploadModal";
 import { Plus, Search, UserPlus, Mail, Phone, MapPin, Calendar } from "lucide-react";
 
 export default function StudentsScreen() {
@@ -40,10 +41,13 @@ export default function StudentsScreen() {
           title="Student Management"
           subtitle="Manage student records and information"
           actions={
-            <Button onClick={() => setIsModalOpen(true)} className="bg-ustp-navy hover:bg-ustp-navy-light">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Student
-            </Button>
+            <div className="flex gap-2">
+              <BulkUploadModal />
+              <Button onClick={() => setIsModalOpen(true)} className="bg-ustp-navy hover:bg-ustp-navy-light">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Student
+              </Button>
+            </div>
           }
         />
 

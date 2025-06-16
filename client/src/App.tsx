@@ -13,6 +13,8 @@ import StudentsScreen from "@/pages/teacher/students";
 import ReportsScreen from "@/pages/teacher/reports";
 import ConsultationsScreen from "@/pages/teacher/consultations";
 import StudentDashboard from "@/pages/student/dashboard";
+import ClassRecord from "./pages/ClassRecord";
+import StudentRecord from "./pages/StudentRecord";
 
 function Router() {
   const { user, isLoading } = useAuth();
@@ -40,10 +42,12 @@ function Router() {
           <Route path="/students" component={StudentsScreen} />
           <Route path="/reports" component={ReportsScreen} />
           <Route path="/consultations" component={ConsultationsScreen} />
+          <Route path="/classes/:classId/records" component={ClassRecord} />
         </>
       ) : (
         <>
           <Route path="/" component={StudentDashboard} />
+          <Route path="/students/:studentId/records" component={StudentRecord} />
         </>
       )}
       <Route component={NotFound} />

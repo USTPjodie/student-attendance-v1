@@ -17,12 +17,16 @@ import {
   Book,
   Clock,
   User,
+  X,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns";
 
 export default function StudentDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("attendance");
+  const [isConsultationModalOpen, setIsConsultationModalOpen] = useState(false);
 
   const logoutMutation = useMutation({
     mutationFn: logout,
@@ -46,6 +50,24 @@ export default function StudentDashboard() {
 
   const { data: consultations } = useQuery({
     queryKey: ["/api/consultations"],
+  });
+
+  const { data: updateStatusMutation } = useMutation({
+    mutationFn: (data: { id: string; status: string }) =>
+      fetch(`/api/consultations/${data.id}/status`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status: data.status }),
+      }).then((res) => res.json()),
+    onSuccess: () => {
+      toast({
+        title: "Consultation status updated",
+        description: "The consultation status has been updated successfully",
+      });
+      window.location.reload();
+    },
   });
 
   // Mock student classes with attendance data
@@ -94,6 +116,13 @@ export default function StudentDashboard() {
     if (rate >= 90) return "bg-green-600";
     if (rate >= 75) return "bg-yellow-600";
     return "bg-red-600";
+  };
+
+  const getStatusColor = (status: string) => {
+    if (status === "pending") return "bg-yellow-100 text-yellow-800";
+    if (status === "approved") return "bg-green-100 text-green-800";
+    if (status === "cancelled") return "bg-red-100 text-red-800";
+    return "bg-slate-100 text-slate-800";
   };
 
   const tabs = [
@@ -342,54 +371,66 @@ export default function StudentDashboard() {
               <div>
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg font-semibold text-slate-900">Consultation Requests</h3>
-                  <Button className="bg-ustp-navy hover:bg-ustp-navy-light">
+                  <Button 
+                    className="bg-ustp-navy hover:bg-ustp-navy-light"
+                    onClick={() => setIsConsultationModalOpen(true)}
+                  >
                     <Calendar className="w-4 h-4 mr-2" />
                     Book New Consultation
                   </Button>
                 </div>
                 
                 <div className="space-y-4">
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <User className="w-10 h-10 text-ustp-navy" />
-                          <div>
-                            <p className="font-medium text-slate-900">Prof. Smith</p>
-                            <p className="text-sm text-slate-600">Programming Fundamentals</p>
-                            <div className="flex items-center text-sm text-slate-500 mt-1">
-                              <Clock className="w-4 h-4 mr-1" />
-                              Dec 15, 2024 at 10:00 AM
+                  {consultations?.map((consultation) => (
+                    <Card key={consultation.id}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            <User className="w-10 h-10 text-ustp-navy" />
+                            <div>
+                              <p className="font-medium text-slate-900">
+                                {consultation.teacher?.firstName} {consultation.teacher?.lastName}
+                              </p>
+                              <p className="text-sm text-slate-600">{consultation.purpose}</p>
+                              <div className="flex items-center text-sm text-slate-500 mt-1">
+                                <Clock className="w-4 h-4 mr-1" />
+                                {consultation.dateTime 
+                                  ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p")
+                                  : "No date set"}
+                              </div>
+                              {consultation.notes && (
+                                <p className="text-sm text-slate-500 mt-1">
+                                  Notes: {consultation.notes}
+                                </p>
+                              )}
                             </div>
                           </div>
-                        </div>
-                        <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm">
-                          Pending
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <User className="w-10 h-10 text-ustp-navy" />
-                          <div>
-                            <p className="font-medium text-slate-900">Prof. Johnson</p>
-                            <p className="text-sm text-slate-600">Data Structures</p>
-                            <div className="flex items-center text-sm text-slate-500 mt-1">
-                              <Clock className="w-4 h-4 mr-1" />
-                              Dec 12, 2024 at 2:00 PM
-                            </div>
+                          <div className="flex items-center space-x-2">
+                            <Badge
+                              className={getStatusColor(consultation.status)}
+                            >
+                              {consultation.status.charAt(0).toUpperCase() + consultation.status.slice(1)}
+                            </Badge>
+                            {consultation.status === "pending" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  updateStatusMutation.mutate({
+                                    id: consultation.id,
+                                    status: "cancelled",
+                                  })
+                                }
+                                disabled={updateStatusMutation.isPending}
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            )}
                           </div>
                         </div>
-                        <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">
-                          Approved
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
               </div>
             )}
