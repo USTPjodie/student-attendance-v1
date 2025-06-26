@@ -32,6 +32,12 @@ try {
   // Test teacher_availability table
   const [columns] = await connection.query('DESCRIBE teacher_availability');
   console.log('Teacher availability table structure:', columns);
+
+  // Test John Smith's availability
+  const [johnAvailability] = await connection.query(
+    'SELECT * FROM teacher_availability WHERE teacher_id = 1'
+  );
+  console.log('John Smith\'s availability:', johnAvailability);
 } catch (error) {
   console.error('Error connecting to MariaDB:', error);
   process.exit(1);

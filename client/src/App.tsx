@@ -33,7 +33,10 @@ function Router() {
   return (
     <Switch>
       {!user ? (
-        <Route path="/" component={Login} />
+        <>
+          <Route path="/" component={Login} />
+          <Route path="/login" component={Login} />
+        </>
       ) : user.role === "teacher" ? (
         <>
           <Route path="/" component={TeacherDashboard} />

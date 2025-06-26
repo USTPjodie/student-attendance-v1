@@ -19,8 +19,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ user }: SidebarProps) {
-  const [location] = useLocation();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { toast } = useToast();
 
   const logoutMutation = useMutation({
@@ -30,7 +29,7 @@ export default function Sidebar({ user }: SidebarProps) {
         title: "Logged out",
         description: "You have been logged out successfully",
       });
-      window.location.reload();
+      window.location.href = "/login";
     },
   });
 

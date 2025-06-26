@@ -1,9 +1,15 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertUserSchema, insertClassSchema, insertAttendanceSchema, insertConsultationSchema } from "@shared/schema";
+import { insertUserSchema, insertClassSchema, insertAttendanceSchema, insertConsultationSchema, type User, type Student } from "@shared/schema";
 import bcrypt from 'bcrypt';
 import { format } from 'date-fns';
+import { connection } from "./db";
+
+// Add type for user with student data
+interface UserWithStudent extends User {
+  student?: Student;
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
@@ -27,7 +33,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       (req as any).session.userRole = user.role;
 
       // Get additional data based on role
-      let userData = { ...user };
+      let userData: UserWithStudent = { ...user };
       if (role === "student") {
         const student = await storage.getStudentByUserId(user.id);
         userData = { ...userData, student };
@@ -57,7 +63,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "User not found" });
       }
 
-      let userData = { ...user };
+      let userData: UserWithStudent = { ...user };
       if (user.role === "student") {
         const student = await storage.getStudentByUserId(user.id);
         userData = { ...userData, student };
@@ -214,6 +220,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Consultation routes
   app.get("/api/consultations", async (req, res) => {
+    res.set("Cache-Control", "no-store"); // Prevent caching so new consultations always show up
     try {
       const userId = (req as any).session?.userId;
       const userRole = (req as any).session?.userRole;
@@ -224,11 +231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let consultations;
       if (userRole === "teacher") {
-        const teacher = await storage.getTeacherByUserId(userId);
-        if (!teacher) {
-          return res.status(404).json({ message: "Teacher not found" });
-        }
-        consultations = await storage.getConsultationsByTeacher(teacher.id);
+        consultations = await storage.getConsultationsByTeacher(userId);
       } else {
         const student = await storage.getStudentByUserId(userId);
         if (!student) {
@@ -256,17 +259,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Student not found" });
       }
 
-      const consultationData = insertConsultationSchema.parse({
+      console.log('Received consultation request:', req.body);
+
+      // Parse and validate the date
+      const dateTime = new Date(req.body.dateTime);
+      if (isNaN(dateTime.getTime())) {
+        return res.status(400).json({ message: "Invalid date format" });
+      }
+
+      const consultationData = {
         ...req.body,
+        dateTime,
         studentId: student.id,
         status: "pending",
-      });
+      };
+
+      console.log('Parsed consultation data:', consultationData);
 
       const consultation = await storage.createConsultation(consultationData);
       res.status(201).json(consultation);
     } catch (error) {
       console.error("Create consultation error:", error);
-      res.status(500).json({ message: "Failed to create consultation" });
+      if (error instanceof Error) {
+        res.status(500).json({ message: `Failed to create consultation: ${error.message}` });
+      } else {
+        res.status(500).json({ message: "Failed to create consultation" });
+      }
     }
   });
 
@@ -396,7 +414,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Teacher availability routes
+  // Consultation Slots routes
+  app.post("/api/slots", async (req, res) => {
+    try {
+      const userId = (req as any).session?.userId;
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { startTime, endTime } = req.body;
+      const slots = await storage.createConsultationSlots(userId, startTime, endTime);
+      res.status(201).json(slots);
+    } catch (error) {
+      console.error("Create slots error:", error);
+      res.status(500).json({ message: "Failed to create slots" });
+    }
+  });
+
+  app.get("/api/slots", async (req, res) => {
+    try {
+      const { teacherId, startTime, endTime, status } = req.query;
+      const slots = await storage.getConsultationSlots(
+        Number(teacherId),
+        startTime as string,
+        endTime as string
+      );
+      res.json(slots);
+    } catch (error) {
+      console.error("Get slots error:", error);
+      res.status(500).json({ message: "Failed to fetch slots" });
+    }
+  });
+
+  // Bookings routes
+  app.post("/api/bookings", async (req, res) => {
+    try {
+      const userId = (req as any).session?.userId;
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const student = await storage.getStudentByUserId(userId);
+      if (!student) {
+        return res.status(404).json({ message: "Student not found" });
+      }
+
+      let { slotId, purpose, notes, teacherId, date } = req.body;
+      let realSlotId = slotId;
+
+      // If slotId is not a number, treat it as startTime-endTime and create the slot
+      if (isNaN(Number(slotId)) && teacherId && date && slotId.includes("-")) {
+        const [startTime, endTime] = slotId.split("-");
+        // Compose full ISO strings for the slot
+        const dateStr = date.split("T")[0];
+        const slotStart = new Date(`${dateStr}T${startTime}`);
+        const slotEnd = new Date(`${dateStr}T${endTime}`);
+        // Create the slot in the DB
+        const slots = await storage.createConsultationSlots(
+          Number(teacherId),
+          slotStart.toISOString(),
+          slotEnd.toISOString()
+        );
+        // Use the first created slot's id
+        realSlotId = slots[0].id;
+      }
+
+      const booking = await storage.createBooking(realSlotId, student.id, purpose, notes);
+      res.status(201).json(booking);
+    } catch (error) {
+      console.error("Create booking error:", error);
+      res.status(500).json({ message: "Failed to create booking" });
+    }
+  });
+
+  app.patch("/api/bookings/:id/status", async (req, res) => {
+    try {
+      const userId = (req as any).session?.userId;
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { id } = req.params;
+      const { status, teacherNotes } = req.body;
+      const booking = await storage.updateBookingStatus(Number(id), status, teacherNotes);
+      res.json(booking);
+    } catch (error) {
+      console.error("Update booking status error:", error);
+      res.status(500).json({ message: "Failed to update booking status" });
+    }
+  });
+
+  // Teacher Availability routes
   app.get("/api/availability", async (req, res) => {
     try {
       const userId = (req as any).session?.userId;
@@ -419,25 +527,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const timeSlots = req.body.timeSlots;
-      if (!timeSlots || !Array.isArray(timeSlots)) {
-        return res.status(400).json({ message: "Invalid request: timeSlots array is required" });
-      }
-
-      console.log("Received availability update request:", {
-        userId,
-        timeSlots
-      });
-
+      const { timeSlots } = req.body;
       const availability = await storage.updateTeacherAvailability(userId, timeSlots);
       res.json(availability);
     } catch (error) {
       console.error("Update availability error:", error);
-      if (error instanceof Error) {
-        res.status(500).json({ message: error.message });
-      } else {
-        res.status(500).json({ message: "Failed to update availability" });
-      }
+      res.status(500).json({ message: "Failed to update availability" });
     }
   });
 
@@ -447,14 +542,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { date } = req.query;
 
       if (!date) {
-        return res.status(400).json({ message: "Date parameter is required" });
+        return res.status(400).json({ message: "Date is required" });
       }
 
-      const availableSlots = await storage.getAvailableTimeSlots(
+      const slots = await storage.getAvailableTimeSlots(
         Number(teacherId),
         new Date(date as string)
       );
-      res.json(availableSlots);
+      res.json(slots);
     } catch (error) {
       console.error("Get available slots error:", error);
       res.status(500).json({ message: "Failed to fetch available slots" });
@@ -482,10 +577,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Date parameter is required" });
       }
 
+      console.log(`Fetching availability for teacher ${teacherId} on date ${date}`);
+
+      // Parse the date and get the day of the week
+      const reqDate = new Date(date as string);
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const dayOfWeek = reqDate.getDay();
+      const dayName = days[dayOfWeek];
+      console.log(`Parsed day: ${dayName}`);
+
+      // Query for that specific day
+      const [availabilityRows] = await connection.query(
+        'SELECT * FROM teacher_availability WHERE teacher_id = ? AND day = ?',
+        [teacherId, dayName]
+      );
+      console.log(`Availability rows for ${dayName}:`, availabilityRows);
+
+      if (!availabilityRows || (availabilityRows as any[]).length === 0) {
+        console.log(`No availability found for teacher ${teacherId} on ${dayName}`);
+        return res.json([]); // Return empty array instead of 404
+      }
+
       const availableSlots = await storage.getAvailableTimeSlots(
         Number(teacherId),
-        new Date(date as string)
+        reqDate
       );
+
+      console.log(`Found ${availableSlots.length} available slots for teacher ${teacherId} on ${dayName}:`, availableSlots);
       res.json(availableSlots);
     } catch (error) {
       console.error("Error fetching teacher availability:", error);

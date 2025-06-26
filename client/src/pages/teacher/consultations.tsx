@@ -1,45 +1,36 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { Calendar, Clock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
-import { Calendar, Clock, User, Check, X, MessageSquare, Loader2, Pencil } from "lucide-react";
+import { ConsultationModal } from "@/components/modals/ConsultationModal";
 import { AvailabilityModal } from "@/components/modals/AvailabilityModal";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
-
-interface Student {
-  id: number;
-  userId: number;
-  studentId: string;
-  firstName: string;
-  lastName: string;
-  year: number;
-  program: string;
-  gpa?: number;
-}
-
-interface Consultation {
-  id: number;
-  studentId: number;
-  teacherId: number;
-  dateTime: string;
-  duration: number;
-  purpose: string;
-  status: "pending" | "approved" | "rejected" | "completed" | "cancelled";
-  notes?: string;
-  createdAt: string;
-  student?: Student;
-}
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 interface TimeSlot {
   day: string;
   startTime: string;
   endTime: string;
+}
+
+interface Consultation {
+  id: number;
+  teacherId: number;
+  studentId: number;
+  dateTime: string;
+  duration: number;
+  purpose: string;
+  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'cancelled';
+  notes: string;
+  student: {
+    firstName: string;
+    lastName: string;
+  };
 }
 
 export default function ConsultationsScreen() {
@@ -55,9 +46,7 @@ export default function ConsultationsScreen() {
       if (!response.ok) {
         throw new Error("Failed to fetch consultations");
       }
-      const data = await response.json();
-      console.log('Consultations data:', data);
-      return data;
+      return response.json();
     },
   });
 
@@ -68,36 +57,51 @@ export default function ConsultationsScreen() {
       if (!response.ok) {
         throw new Error("Failed to fetch availability");
       }
-      return response.json();
+      const data = await response.json();
+      return data;
     },
   });
 
-  const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: Consultation["status"] }) => {
-      const response = await fetch(`/api/consultations/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+  // Group consultations by status
+  const consultationsByStatus = (consultations || []).reduce((acc, consultation) => {
+    (acc[consultation.status] = acc[consultation.status] || []).push(consultation);
+    return acc;
+  }, {} as Record<string, Consultation[]>);
+
+  const statusTabs = [
+    { value: "pending", label: "Pending" },
+    { value: "approved", label: "Approved" },
+    { value: "completed", label: "Completed" },
+    { value: "rejected", label: "Rejected" },
+    { value: "cancelled", label: "Cancelled" },
+  ];
+
+  const updateBookingStatusMutation = useMutation({
+    mutationFn: async ({ bookingId, status, teacherNotes }: { bookingId: number; status: 'approved' | 'rejected'; teacherNotes?: string }) => {
+      const response = await fetch(`/api/bookings/${bookingId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, teacherNotes }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to update consultation status");
+        throw new Error('Failed to update booking status');
       }
 
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/consultations"] });
+      queryClient.invalidateQueries({ queryKey: ['/api/consultations'] });
       toast({
-        title: "Status updated",
-        description: "The consultation status has been updated successfully.",
+        title: 'Status updated',
+        description: 'The consultation status has been updated successfully.',
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to update status. Please try again.",
-        variant: "destructive",
+        title: 'Error',
+        description: error.message || 'Failed to update status. Please try again.',
+        variant: 'destructive',
       });
     },
   });
@@ -111,8 +115,7 @@ export default function ConsultationsScreen() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to update availability");
+        throw new Error("Failed to update availability");
       }
 
       return response.json();
@@ -133,36 +136,6 @@ export default function ConsultationsScreen() {
     },
   });
 
-  const getStatusColor = (status: Consultation["status"]) => {
-    switch (status) {
-      case "pending":
-        return "bg-yellow-100 text-yellow-800";
-      case "approved":
-        return "bg-green-100 text-green-800";
-      case "rejected":
-        return "bg-red-100 text-red-800";
-      case "completed":
-        return "bg-blue-100 text-blue-800";
-      case "cancelled":
-        return "bg-gray-100 text-gray-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
-
-  const pendingConsultations = consultations?.filter((c) => c.status === "pending") ?? [];
-  const approvedConsultations = consultations?.filter((c) => c.status === "approved") ?? [];
-  const completedConsultations = consultations?.filter((c) => c.status === "completed") ?? [];
-  const cancelledConsultations = consultations?.filter((c) => c.status === "cancelled") ?? [];
-
-  if (isLoadingConsultations || isLoadingAvailability) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-8 h-8 animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-screen bg-background">
       <Sidebar user={user} />
@@ -182,243 +155,125 @@ export default function ConsultationsScreen() {
           }
         />
 
+        {/* Teacher Availability Display */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold">Your Set Availability</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoadingAvailability ? (
+              <div className="text-muted-foreground">Loading availability...</div>
+            ) : (availability && availability.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {availability.map((slot, idx) => (
+                  <div key={idx} className="px-3 py-1 rounded bg-primary/10 text-primary text-sm border border-primary/20">
+                    {slot.day}: {slot.startTime} - {slot.endTime}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-muted-foreground">No availability set.</div>
+            ))}
+          </CardContent>
+        </Card>
+
         <main className="p-6">
           <div className="mb-6">
-            <h2 className="text-lg font-semibold mb-4">Your Availability Schedule</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {availability?.map((slot, index) => (
-                <Card key={index}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center space-x-3">
-                      <Calendar className="w-8 h-8 text-primary" />
-                      <div>
-                        <p className="font-medium capitalize">{slot.day}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {slot.startTime} - {slot.endTime}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+            <h2 className="text-lg font-semibold mb-4">Your Consultation Schedule</h2>
+            <Tabs defaultValue="pending" className="w-full mb-6">
+              <TabsList className="mb-4">
+                {statusTabs.map(tab => (
+                  <TabsTrigger key={tab.value} value={tab.value}>
+                    {tab.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              {statusTabs.map(tab => (
+                <TabsContent key={tab.value} value={tab.value}>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {(consultationsByStatus[tab.value] || []).length === 0 ? (
+                      <div className="col-span-full text-center text-muted-foreground py-8">No {tab.label.toLowerCase()} consultations.</div>
+                    ) : (
+                      consultationsByStatus[tab.value].map((consultation) => (
+                        <Card key={consultation.id}>
+                          <CardHeader>
+                            <CardTitle className="flex items-center space-x-2">
+                              <Calendar className="w-5 h-5 text-primary" />
+                              <span>{new Date(consultation.dateTime).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</span>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="space-y-4">
+                              <div className="border rounded-lg p-4">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="font-medium">
+                                    {consultation.student.firstName} {consultation.student.lastName}
+                                  </span>
+                                  <Badge variant={
+                                    consultation.status === 'approved' ? 'default' :
+                                    consultation.status === 'pending' ? 'secondary' :
+                                    consultation.status === 'rejected' ? 'destructive' :
+                                    consultation.status === 'completed' ? 'outline' :
+                                    consultation.status === 'cancelled' ? 'outline' :
+                                    'outline'
+                                  }>
+                                    {consultation.status.charAt(0).toUpperCase() + consultation.status.slice(1)}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center text-sm text-muted-foreground mb-2">
+                                  <Clock className="w-4 h-4 mr-1" />
+                                  {new Date(consultation.dateTime).toLocaleTimeString([], {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })}
+                                </div>
+                                <p className="text-sm mb-2">{consultation.purpose}</p>
+                                {consultation.status === 'pending' && (
+                                  <div className="flex space-x-2">
+                                    <Button
+                                      size="sm"
+                                      onClick={() => updateBookingStatusMutation.mutate({
+                                        bookingId: consultation.id,
+                                        status: 'approved'
+                                      })}
+                                    >
+                                      Approve
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() => updateBookingStatusMutation.mutate({
+                                        bookingId: consultation.id,
+                                        status: 'rejected'
+                                      })}
+                                    >
+                                      Reject
+                                    </Button>
+                                  </div>
+                                )}
+                                {consultation.status === 'completed' && (
+                                  <div className="mt-2 text-green-700 text-xs font-semibold">Consultation completed</div>
+                                )}
+                                {consultation.status === 'cancelled' && (
+                                  <div className="mt-2 text-yellow-700 text-xs font-semibold">Consultation cancelled</div>
+                                )}
+                                {consultation.status === 'rejected' && (
+                                  <div className="mt-2 text-red-700 text-xs font-semibold">Consultation rejected</div>
+                                )}
+                                {consultation.status === 'approved' && (
+                                  <div className="mt-2 text-blue-700 text-xs font-semibold">Consultation approved</div>
+                                )}
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
+                  </div>
+                </TabsContent>
               ))}
-              {(!availability || availability.length === 0) && (
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-muted-foreground">No availability set. Click "Set Availability" to add your schedule.</p>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+            </Tabs>
           </div>
-
-          <Tabs defaultValue="pending" className="space-y-4">
-            <TabsList>
-              <TabsTrigger value="pending">
-                Pending ({pendingConsultations.length})
-              </TabsTrigger>
-              <TabsTrigger value="approved">
-                Approved ({approvedConsultations.length})
-              </TabsTrigger>
-              <TabsTrigger value="completed">
-                Completed ({completedConsultations.length})
-              </TabsTrigger>
-              <TabsTrigger value="cancelled">
-                Cancelled ({cancelledConsultations.length})
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="pending" className="space-y-4">
-              {pendingConsultations.map((consultation) => (
-                <Card key={consultation.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <User className="w-10 h-10 text-primary" />
-                        <div>
-                          <p className="font-medium">
-                            {consultation.student?.firstName} {consultation.student?.lastName}
-                          </p>
-                          <p className="text-sm text-muted-foreground">{consultation.purpose}</p>
-                          <div className="flex items-center text-sm text-muted-foreground mt-1">
-                            <Clock className="w-4 h-4 mr-1" />
-                            {(() => {
-                              console.log('Date value:', consultation.dateTime);
-                              if (!consultation.dateTime) return "No date set";
-                              try {
-                                const date = new Date(consultation.dateTime);
-                                console.log('Parsed date:', date);
-                                return format(date, "PPP p");
-                              } catch (error) {
-                                console.error('Date parsing error:', error);
-                                return "Invalid date";
-                              }
-                            })()}
-                          </div>
-                          {consultation.notes && (
-                            <p className="text-sm text-muted-foreground mt-1">
-                              Notes: {consultation.notes}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => updateStatusMutation.mutate({ id: consultation.id, status: "approved" })}
-                        >
-                          <Check className="w-4 h-4 mr-1" />
-                          Approve
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => updateStatusMutation.mutate({ id: consultation.id, status: "rejected" })}
-                        >
-                          <X className="w-4 h-4 mr-1" />
-                          Reject
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </TabsContent>
-
-            <TabsContent value="approved" className="space-y-4">
-              {approvedConsultations.map((consultation) => (
-                <Card key={consultation.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <User className="w-10 h-10 text-primary" />
-                        <div>
-                          <p className="font-medium">
-                            {consultation.student?.firstName} {consultation.student?.lastName}
-                          </p>
-                          <p className="text-sm text-muted-foreground">{consultation.purpose}</p>
-                          <div className="flex items-center text-sm text-muted-foreground mt-1">
-                            <Clock className="w-4 h-4 mr-1" />
-                            {(() => {
-                              console.log('Date value:', consultation.dateTime);
-                              if (!consultation.dateTime) return "No date set";
-                              try {
-                                const date = new Date(consultation.dateTime);
-                                console.log('Parsed date:', date);
-                                return format(date, "PPP p");
-                              } catch (error) {
-                                console.error('Date parsing error:', error);
-                                return "Invalid date";
-                              }
-                            })()}
-                          </div>
-                          {consultation.notes && (
-                            <p className="text-sm text-muted-foreground mt-1">
-                              Notes: {consultation.notes}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => updateStatusMutation.mutate({ id: consultation.id, status: "completed" })}
-                        >
-                          <Check className="w-4 h-4 mr-1" />
-                          Mark Complete
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => updateStatusMutation.mutate({ id: consultation.id, status: "cancelled" })}
-                        >
-                          <X className="w-4 h-4 mr-1" />
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </TabsContent>
-
-            <TabsContent value="completed" className="space-y-4">
-              {completedConsultations.map((consultation) => (
-                <Card key={consultation.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center space-x-3">
-                      <User className="w-10 h-10 text-primary" />
-                      <div>
-                        <p className="font-medium">
-                          {consultation.student?.firstName} {consultation.student?.lastName}
-                        </p>
-                        <p className="text-sm text-muted-foreground">{consultation.purpose}</p>
-                        <div className="flex items-center text-sm text-muted-foreground mt-1">
-                          <Clock className="w-4 h-4 mr-1" />
-                          {(() => {
-                            console.log('Date value:', consultation.dateTime);
-                            if (!consultation.dateTime) return "No date set";
-                            try {
-                              const date = new Date(consultation.dateTime);
-                              console.log('Parsed date:', date);
-                              return format(date, "PPP p");
-                            } catch (error) {
-                              console.error('Date parsing error:', error);
-                              return "Invalid date";
-                            }
-                          })()}
-                        </div>
-                        {consultation.notes && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Notes: {consultation.notes}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </TabsContent>
-
-            <TabsContent value="cancelled" className="space-y-4">
-              {cancelledConsultations.map((consultation) => (
-                <Card key={consultation.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center space-x-3">
-                      <User className="w-10 h-10 text-primary" />
-                      <div>
-                        <p className="font-medium">
-                          {consultation.student?.firstName} {consultation.student?.lastName}
-                        </p>
-                        <p className="text-sm text-muted-foreground">{consultation.purpose}</p>
-                        <div className="flex items-center text-sm text-muted-foreground mt-1">
-                          <Clock className="w-4 h-4 mr-1" />
-                          {(() => {
-                            console.log('Date value:', consultation.dateTime);
-                            if (!consultation.dateTime) return "No date set";
-                            try {
-                              const date = new Date(consultation.dateTime);
-                              console.log('Parsed date:', date);
-                              return format(date, "PPP p");
-                            } catch (error) {
-                              console.error('Date parsing error:', error);
-                              return "Invalid date";
-                            }
-                          })()}
-                        </div>
-                        {consultation.notes && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Notes: {consultation.notes}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </TabsContent>
-          </Tabs>
         </main>
       </div>
 
@@ -431,3 +286,7 @@ export default function ConsultationsScreen() {
     </div>
   );
 }
+
+
+
+

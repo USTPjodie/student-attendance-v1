@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, int, timestamp, decimal } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, int, timestamp, decimal, time, datetime, mysqlEnum, boolean } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -53,12 +53,13 @@ export const attendanceRecords = mysqlTable("attendance_records", {
 
 export const consultations = mysqlTable("consultations", {
   id: int("id").primaryKey().autoincrement(),
+  bookingId: int("booking_id").references(() => bookings.id),
   teacherId: int("teacher_id").references(() => users.id).notNull(),
   studentId: int("student_id").references(() => students.id).notNull(),
   dateTime: timestamp("date_time").notNull(),
   duration: int("duration").default(60), // minutes
   purpose: varchar("purpose", { length: 1000 }),
-  status: varchar("status", { length: 50 }).notNull().default("pending"), // "pending", "approved", "rejected", "completed"
+  status: mysqlEnum("status", ["pending", "approved", "rejected", "completed", "cancelled"]).notNull().default("pending"),
   notes: varchar("notes", { length: 1000 }),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -66,9 +67,32 @@ export const consultations = mysqlTable("consultations", {
 export const teacherAvailability = mysqlTable("teacher_availability", {
   id: int("id").primaryKey().autoincrement(),
   teacherId: int("teacher_id").references(() => users.id).notNull(),
-  day: varchar("day", { length: 10 }).notNull(),
-  startTime: varchar("start_time", { length: 8 }).notNull(),
-  endTime: varchar("end_time", { length: 8 }).notNull(),
+  day: varchar("day", { length: 20 }).notNull(),
+  startTime: time("start_time").notNull(),
+  endTime: time("end_time").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const consultationSlots = mysqlTable("consultation_slots", {
+  id: int("id").primaryKey().autoincrement(),
+  teacherId: int("teacher_id").references(() => users.id).notNull(),
+  startTime: datetime("start_time").notNull(),
+  endTime: datetime("end_time").notNull(),
+  status: mysqlEnum("status", ["available", "booked", "pending_approval"]).notNull().default("available"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const bookings = mysqlTable("bookings", {
+  id: int("id").primaryKey().autoincrement(),
+  slotId: int("slot_id").references(() => consultationSlots.id).notNull(),
+  studentId: int("student_id").references(() => students.id).notNull(),
+  consultationId: int("consultation_id"),
+  status: varchar("status", { length: 20 }).notNull(),
+  purpose: varchar("purpose", { length: 1000 }),
+  teacherNotes: varchar("teacher_notes", { length: 1000 }),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Assignments table for class activities
@@ -131,10 +155,26 @@ export const insertGradeSchema = createInsertSchema(grades).omit({
   gradedAt: true,
 });
 
+export const insertConsultationSlotSchema = createInsertSchema(consultationSlots).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertBookingSchema = createInsertSchema(bookings).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
-export type Class = typeof classes.$inferSelect;
+export type Class = Omit<typeof classes.$inferSelect, 'createdAt'> & {
+  createdAt: string;
+  teacher_name?: string;
+  first_name?: string;
+  last_name?: string;
+};
 export type InsertClass = z.infer<typeof insertClassSchema>;
 export type Student = typeof students.$inferSelect;
 export type InsertStudent = z.infer<typeof insertStudentSchema>;
@@ -146,3 +186,7 @@ export type Assignment = typeof assignments.$inferSelect;
 export type InsertAssignment = z.infer<typeof insertAssignmentSchema>;
 export type Grade = typeof grades.$inferSelect;
 export type InsertGrade = z.infer<typeof insertGradeSchema>;
+export type ConsultationSlot = typeof consultationSlots.$inferSelect;
+export type InsertConsultationSlot = z.infer<typeof insertConsultationSlotSchema>;
+export type Booking = typeof bookings.$inferSelect;
+export type InsertBooking = z.infer<typeof insertBookingSchema>;

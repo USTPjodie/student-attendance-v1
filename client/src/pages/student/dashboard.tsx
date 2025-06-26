@@ -6,6 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { logout } from "@/lib/auth";
+import { ConsultationModal } from "@/components/modals/ConsultationModal";
 import {
   GraduationCap,
   CheckCircle,
@@ -18,9 +19,54 @@ import {
   Clock,
   User,
   X,
+  MapPin,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+
+interface DashboardStats {
+  attendanceRate: number;
+  classCount: number;
+  consultations: number;
+}
+
+interface Consultation {
+  id: number;
+  teacherId: number;
+  studentId: number;
+  dateTime: string;
+  duration: number;
+  purpose: string;
+  status: "pending" | "approved" | "rejected" | "completed" | "cancelled";
+  notes?: string;
+  createdAt: string;
+  teacher?: {
+    firstName: string;
+    lastName: string;
+  };
+}
+
+interface AttendanceData {
+  attendanceRate: number;
+  present: number;
+  total: number;
+}
+
+interface MockAttendanceData {
+  [key: number]: AttendanceData;
+}
+
+interface StudentClass {
+  id: number;
+  code: string;
+  name: string;
+  teacher_name: string;
+  schedule: string;
+  room: string;
+  semester: string;
+  description: string;
+}
 
 export default function StudentDashboard() {
   const { user } = useAuth();
@@ -39,7 +85,7 @@ export default function StudentDashboard() {
     },
   });
 
-  const { data: stats } = useQuery({
+  const { data: stats } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
 
@@ -48,7 +94,7 @@ export default function StudentDashboard() {
     enabled: !!user?.student?.id,
   });
 
-  const { data: consultations } = useQuery({
+  const { data: consultations } = useQuery<Consultation[]>({
     queryKey: ["/api/consultations"],
   });
 
@@ -70,39 +116,24 @@ export default function StudentDashboard() {
     },
   });
 
+  const { data: studentClasses } = useQuery<StudentClass[]>({
+    queryKey: ["/api/student/classes"],
+    queryFn: async () => {
+      const response = await fetch("/api/student/classes");
+      if (!response.ok) {
+        throw new Error("Failed to fetch enrolled classes");
+      }
+      return response.json();
+    },
+  });
+
   // Mock student classes with attendance data
-  const studentClasses = [
-    {
-      id: 1,
-      code: "CS 101",
-      name: "Programming Fundamentals",
-      instructor: "Prof. Smith",
-      schedule: "MWF 9:00-10:30 AM",
-      attendanceRate: 95,
-      present: 19,
-      total: 20,
-    },
-    {
-      id: 2,
-      code: "CS 201",
-      name: "Data Structures",
-      instructor: "Prof. Johnson",
-      schedule: "TTh 1:00-2:30 PM",
-      attendanceRate: 88,
-      present: 15,
-      total: 17,
-    },
-    {
-      id: 3,
-      code: "MATH 203",
-      name: "Discrete Mathematics",
-      instructor: "Prof. Davis",
-      schedule: "MWF 2:00-3:30 PM",
-      attendanceRate: 75,
-      present: 12,
-      total: 16,
-    },
-  ];
+  const mockAttendanceData: MockAttendanceData = {
+    1: { attendanceRate: 95, present: 19, total: 20 },
+    2: { attendanceRate: 88, present: 15, total: 17 },
+    3: { attendanceRate: 75, present: 12, total: 16 },
+    4: { attendanceRate: 82, present: 14, total: 17 },
+  };
 
   const studentInitials = user ? `${user.firstName[0]}${user.lastName[0]}` : "ST";
 
@@ -125,12 +156,9 @@ export default function StudentDashboard() {
     return "bg-slate-100 text-slate-800";
   };
 
-  const tabs = [
-    { id: "attendance", label: "Attendance" },
-    { id: "grades", label: "Grades" },
-    { id: "consultations", label: "Consultations" },
-    { id: "schedule", label: "Schedule" },
-  ];
+  if (!studentClasses) {
+    return <div>Loading...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -248,228 +276,120 @@ export default function StudentDashboard() {
 
         {/* Content Tabs */}
         <Card>
-          <div className="border-b border-slate-200">
-            <nav className="flex space-x-8 px-6">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                    activeTab === tab.id
-                      ? "border-ustp-navy text-ustp-navy"
-                      : "border-transparent text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </nav>
-          </div>
-
           <CardContent className="p-6">
-            {activeTab === "attendance" && (
-              <div>
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-lg font-semibold text-slate-900">Attendance Overview</h3>
-                  <Button className="bg-ustp-gold hover:bg-ustp-gold-dark">
-                    <Download className="w-4 h-4 mr-2" />
-                    Export Report
-                  </Button>
-                </div>
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="w-full justify-start">
+                <TabsTrigger value="attendance">Attendance</TabsTrigger>
+                <TabsTrigger value="grades">Grades</TabsTrigger>
+                <TabsTrigger value="consultations">Consultations</TabsTrigger>
+                <TabsTrigger value="schedule">Schedule</TabsTrigger>
+              </TabsList>
 
-                {/* Class Attendance List */}
-                <div className="space-y-4">
-                  {studentClasses.map((cls) => (
-                    <div key={cls.id} className="border border-slate-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-ustp-navy rounded-lg flex items-center justify-center">
-                            <Book className="w-6 h-6 text-white" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-slate-900">
-                              {cls.code} - {cls.name}
-                            </p>
-                            <p className="text-sm text-slate-500">
-                              {cls.instructor} • {cls.schedule}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className={`text-lg font-semibold ${getAttendanceColor(cls.attendanceRate)}`}>
-                            {cls.attendanceRate}%
-                          </p>
-                          <p className="text-sm text-slate-500">
-                            {cls.present}/{cls.total} present
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-4">
-                        <div className="flex items-center justify-between text-sm text-slate-600 mb-2">
-                          <span>Attendance Progress</span>
-                          <span>{cls.present}/{cls.total} classes</span>
-                        </div>
-                        <Progress value={cls.attendanceRate} className="h-2" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Book Consultation CTA */}
-                <div className="mt-8 bg-gradient-to-r from-ustp-navy to-ustp-navy-light rounded-lg p-6 text-white">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-lg font-semibold">Need Help Improving Attendance?</h4>
-                      <p className="text-blue-100 mt-1">Book a consultation with your professors</p>
-                    </div>
-                    <Button 
-                      onClick={() => setActiveTab("consultations")}
-                      className="bg-white text-ustp-navy hover:bg-slate-100"
-                    >
-                      Book Consultation
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === "grades" && (
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-6">Grade Reports</h3>
-                <div className="space-y-4">
-                  {studentClasses.map((cls) => (
-                    <Card key={cls.id}>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className="font-medium text-slate-900">
-                            {cls.code} - {cls.name}
-                          </h4>
-                          <span className="text-sm text-slate-500">{cls.instructor}</span>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <span className="text-slate-600">Assignment 1:</span>
-                            <span className="ml-2 font-medium">95/100</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-600">Midterm Exam:</span>
-                            <span className="ml-2 font-medium">88/100</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-600">Current Grade:</span>
-                            <span className="ml-2 font-medium text-green-600">A-</span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {activeTab === "consultations" && (
-              <div>
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-lg font-semibold text-slate-900">Consultation Requests</h3>
-                  <Button 
-                    className="bg-ustp-navy hover:bg-ustp-navy-light"
-                    onClick={() => setIsConsultationModalOpen(true)}
-                  >
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Book New Consultation
-                  </Button>
-                </div>
-                
-                <div className="space-y-4">
-                  {consultations?.map((consultation) => (
-                    <Card key={consultation.id}>
-                      <CardContent className="p-4">
+              <TabsContent value="attendance">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-6">Class Attendance</h3>
+                  <div className="space-y-4">
+                    {studentClasses.map((cls: StudentClass) => (
+                      <div key={cls.id} className="border border-slate-200 rounded-lg p-4">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3">
-                            <User className="w-10 h-10 text-ustp-navy" />
+                          <div className="flex items-center space-x-4">
+                            <div className="w-12 h-12 bg-ustp-navy rounded-lg flex items-center justify-center">
+                              <Book className="w-6 h-6 text-white" />
+                            </div>
                             <div>
                               <p className="font-medium text-slate-900">
-                                {consultation.teacher?.firstName} {consultation.teacher?.lastName}
+                                {cls.code} - {cls.name}
                               </p>
-                              <p className="text-sm text-slate-600">{consultation.purpose}</p>
-                              <div className="flex items-center text-sm text-slate-500 mt-1">
-                                <Clock className="w-4 h-4 mr-1" />
-                                {consultation.dateTime 
-                                  ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p")
-                                  : "No date set"}
-                              </div>
-                              {consultation.notes && (
-                                <p className="text-sm text-slate-500 mt-1">
-                                  Notes: {consultation.notes}
-                                </p>
-                              )}
+                              <p className="text-sm text-slate-500">
+                                {cls.teacher_name} • {cls.schedule}
+                              </p>
                             </div>
                           </div>
-                          <div className="flex items-center space-x-2">
-                            <Badge
-                              className={getStatusColor(consultation.status)}
-                            >
-                              {consultation.status.charAt(0).toUpperCase() + consultation.status.slice(1)}
-                            </Badge>
-                            {consultation.status === "pending" && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  updateStatusMutation.mutate({
-                                    id: consultation.id,
-                                    status: "cancelled",
-                                  })
-                                }
-                                disabled={updateStatusMutation.isPending}
-                              >
-                                <X className="w-4 h-4" />
-                              </Button>
-                            )}
+                          <div className="text-right">
+                            <p className={`text-lg font-semibold ${getAttendanceColor(mockAttendanceData[cls.id]?.attendanceRate || 0)}`}>
+                              {mockAttendanceData[cls.id]?.attendanceRate || 0}%
+                            </p>
+                            <p className="text-sm text-slate-500">
+                              {mockAttendanceData[cls.id]?.present || 0}/{mockAttendanceData[cls.id]?.total || 0} present
+                            </p>
                           </div>
                         </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        <div className="mt-4">
+                          <div className="flex items-center justify-between text-sm text-slate-600 mb-2">
+                            <span>Attendance Progress</span>
+                            <span>{mockAttendanceData[cls.id]?.present || 0}/{mockAttendanceData[cls.id]?.total || 0} classes</span>
+                          </div>
+                          <Progress value={mockAttendanceData[cls.id]?.attendanceRate || 0} className="h-2" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              </TabsContent>
 
-            {activeTab === "schedule" && (
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-6">Class Schedule</h3>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {studentClasses.map((cls) => (
-                    <Card key={cls.id}>
-                      <CardContent className="p-4">
-                        <div className="flex items-center space-x-3 mb-3">
-                          <div className="w-10 h-10 bg-ustp-navy rounded-lg flex items-center justify-center">
-                            <Book className="w-5 h-5 text-white" />
-                          </div>
-                          <div>
-                            <h4 className="font-medium text-slate-900">{cls.code}</h4>
-                            <p className="text-sm text-slate-600">{cls.name}</p>
-                          </div>
-                        </div>
-                        <div className="space-y-2 text-sm text-slate-600">
-                          <div className="flex items-center">
-                            <User className="w-4 h-4 mr-2" />
-                            {cls.instructor}
-                          </div>
-                          <div className="flex items-center">
-                            <Clock className="w-4 h-4 mr-2" />
-                            {cls.schedule}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+              <TabsContent value="grades">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-6">Grades</h3>
+                  <p className="text-slate-600">No grades available yet.</p>
                 </div>
-              </div>
-            )}
+              </TabsContent>
+
+              <TabsContent value="consultations">
+                <div>
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-semibold text-slate-900">Consultations</h3>
+                    <Button onClick={() => setIsConsultationModalOpen(true)}>
+                      Book New Consultation
+                    </Button>
+                  </div>
+                  <p className="text-slate-600">No consultations scheduled yet.</p>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="schedule">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-6">Class Schedule</h3>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {studentClasses.map((cls: StudentClass) => (
+                      <Card key={cls.id}>
+                        <CardContent className="p-4">
+                          <div className="flex items-center space-x-3 mb-3">
+                            <div className="w-10 h-10 bg-ustp-navy rounded-lg flex items-center justify-center">
+                              <Book className="w-5 h-5 text-white" />
+                            </div>
+                            <div>
+                              <h4 className="font-medium text-slate-900">{cls.code}</h4>
+                              <p className="text-sm text-slate-600">{cls.name}</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2 text-sm text-slate-600">
+                            <div className="flex items-center">
+                              <User className="w-4 h-4 mr-2" />
+                              {cls.teacher_name}
+                            </div>
+                            <div className="flex items-center">
+                              <Clock className="w-4 h-4 mr-2" />
+                              {cls.schedule}
+                            </div>
+                            <div className="flex items-center">
+                              <MapPin className="w-4 h-4 mr-2" />
+                              {cls.room}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
       </main>
+      <ConsultationModal 
+        isOpen={isConsultationModalOpen}
+        onClose={() => setIsConsultationModalOpen(false)}
+      />
     </div>
   );
 }

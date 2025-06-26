@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,13 +8,14 @@ import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import { Calendar, Clock, User, Loader2, BookOpen } from "lucide-react";
 import { format } from "date-fns";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 
 interface TimeSlot {
   day: string;
@@ -102,12 +103,13 @@ export default function StudentConsultationsScreen() {
     },
   });
 
+  // Get available time slots for the selected teacher and date
   const { data: availableTimeSlots, isLoading: isLoadingSlots } = useQuery<TimeSlot[]>({
-    queryKey: ["/api/teacher-availability", selectedTeacher, selectedDate],
+    queryKey: ["/api/availability", selectedTeacher, selectedDate],
     queryFn: async () => {
       if (!selectedTeacher || !selectedDate) return [];
       const response = await fetch(
-        `/api/teacher-availability/${selectedTeacher}?date=${selectedDate.toISOString()}`
+        `/api/availability/${selectedTeacher}/slots?date=${selectedDate.toISOString()}`
       );
       if (!response.ok) {
         throw new Error("Failed to fetch available time slots");
@@ -133,22 +135,24 @@ export default function StudentConsultationsScreen() {
     enabled: !!selectedTeacher && !!selectedDate,
   });
 
-  // Generate 30-minute slots within the available time range, excluding booked slots
-  const timeSlots = availableTimeSlots?.flatMap(slot => {
+  // Generate 30-minute slots from available time ranges
+  const timeSlots = useMemo(() => {
+    if (!availableTimeSlots) return [];
+    
     const slots: string[] = [];
-    let currentTime = new Date(`2000-01-01T${slot.startTime}`);
-    const endTime = new Date(`2000-01-01T${slot.endTime}`);
-
-    while (currentTime < endTime) {
-      const timeString = format(currentTime, "HH:mm");
-      if (!bookedSlots?.includes(timeString)) {
+    availableTimeSlots.forEach(slot => {
+      let currentTime = new Date(`2000-01-01T${slot.startTime}`);
+      const endTime = new Date(`2000-01-01T${slot.endTime}`);
+      
+      while (currentTime < endTime) {
+        const timeString = currentTime.toTimeString().slice(0, 5);
         slots.push(timeString);
+        currentTime.setMinutes(currentTime.getMinutes() + 30);
       }
-      currentTime.setMinutes(currentTime.getMinutes() + 30);
-    }
-
-    return slots;
-  }) || [];
+    });
+    
+    return slots.sort();
+  }, [availableTimeSlots]);
 
   const bookConsultationMutation = useMutation({
     mutationFn: async () => {
@@ -279,51 +283,90 @@ export default function StudentConsultationsScreen() {
         />
 
         <main className="p-6">
-          <div className="mb-4 p-4 bg-gray-100 rounded">
-            <p>Debug Info:</p>
-            <p>Modal Open: {isBookingModalOpen ? 'Yes' : 'No'}</p>
-            <p>Selected Teacher: {selectedTeacher || 'None'}</p>
-            <p>Selected Date: {selectedDate ? selectedDate.toISOString() : 'None'}</p>
-            <p>Selected Time: {selectedTimeSlot || 'None'}</p>
-            <p>Purpose: {purpose || 'None'}</p>
+          <div className="grid gap-4 mb-6">
+            <Card>
+              <CardContent className="p-6">
+                <div className="grid grid-cols-4 gap-4">
+                  <div className="flex flex-col items-center p-4 bg-yellow-50 rounded-lg">
+                    <p className="text-2xl font-bold text-yellow-600">{pendingConsultations.length}</p>
+                    <p className="text-sm text-yellow-600">Pending</p>
+                  </div>
+                  <div className="flex flex-col items-center p-4 bg-green-50 rounded-lg">
+                    <p className="text-2xl font-bold text-green-600">{approvedConsultations.length}</p>
+                    <p className="text-sm text-green-600">Approved</p>
+                  </div>
+                  <div className="flex flex-col items-center p-4 bg-blue-50 rounded-lg">
+                    <p className="text-2xl font-bold text-blue-600">{completedConsultations.length}</p>
+                    <p className="text-sm text-blue-600">Completed</p>
+                  </div>
+                  <div className="flex flex-col items-center p-4 bg-gray-50 rounded-lg">
+                    <p className="text-2xl font-bold text-gray-600">{cancelledConsultations.length}</p>
+                    <p className="text-sm text-gray-600">Cancelled</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           <Tabs defaultValue="pending" className="space-y-4">
-            <TabsList>
-              <TabsTrigger value="pending">
-                Pending ({pendingConsultations.length})
+            <TabsList className="w-full justify-start">
+              <TabsTrigger value="pending" className="flex items-center gap-2">
+                <span>Pending</span>
+                <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                  {pendingConsultations.length}
+                </Badge>
               </TabsTrigger>
-              <TabsTrigger value="approved">
-                Approved ({approvedConsultations.length})
+              <TabsTrigger value="approved" className="flex items-center gap-2">
+                <span>Approved</span>
+                <Badge variant="secondary" className="bg-green-100 text-green-800">
+                  {approvedConsultations.length}
+                </Badge>
               </TabsTrigger>
-              <TabsTrigger value="completed">
-                Completed ({completedConsultations.length})
+              <TabsTrigger value="completed" className="flex items-center gap-2">
+                <span>Completed</span>
+                <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                  {completedConsultations.length}
+                </Badge>
               </TabsTrigger>
-              <TabsTrigger value="cancelled">
-                Cancelled ({cancelledConsultations.length})
+              <TabsTrigger value="cancelled" className="flex items-center gap-2">
+                <span>Cancelled</span>
+                <Badge variant="secondary" className="bg-gray-100 text-gray-800">
+                  {cancelledConsultations.length}
+                </Badge>
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="pending" className="space-y-4">
-              {pendingConsultations.map((consultation) => (
-                <Card key={consultation.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center space-x-3">
-                      <User className="w-10 h-10 text-primary" />
-                      <div>
-                        <p className="font-medium">
-                          {consultation.teacher?.firstName} {consultation.teacher?.lastName}
-                        </p>
-                        <p className="text-sm text-muted-foreground">{consultation.purpose}</p>
-                        <div className="flex items-center text-sm text-muted-foreground mt-1">
-                          <Clock className="w-4 h-4 mr-1" />
-                          {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+              {pendingConsultations
+                .sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
+                .map((consultation) => (
+                <Card key={consultation.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start space-x-4">
+                        <div className="p-2 bg-primary/10 rounded-full">
+                          <User className="w-6 h-6 text-primary" />
                         </div>
-                        {consultation.notes && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Notes: {consultation.notes}
-                          </p>
-                        )}
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2">
+                            <p className="font-semibold text-lg">
+                              {consultation.teacher?.firstName} {consultation.teacher?.lastName}
+                            </p>
+                            <Badge variant="outline" className={getStatusColor(consultation.status)}>
+                              {consultation.status.charAt(0).toUpperCase() + consultation.status.slice(1)}
+                            </Badge>
+                          </div>
+                          <p className="text-muted-foreground">{consultation.purpose}</p>
+                          <div className="flex items-center text-sm text-muted-foreground">
+                            <Clock className="w-4 h-4 mr-1" />
+                            {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+                          </div>
+                          {consultation.notes && (
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Notes: {consultation.notes}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -332,25 +375,36 @@ export default function StudentConsultationsScreen() {
             </TabsContent>
 
             <TabsContent value="approved" className="space-y-4">
-              {approvedConsultations.map((consultation) => (
-                <Card key={consultation.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center space-x-3">
-                      <User className="w-10 h-10 text-primary" />
-                      <div>
-                        <p className="font-medium">
-                          {consultation.teacher?.firstName} {consultation.teacher?.lastName}
-                        </p>
-                        <p className="text-sm text-muted-foreground">{consultation.purpose}</p>
-                        <div className="flex items-center text-sm text-muted-foreground mt-1">
-                          <Clock className="w-4 h-4 mr-1" />
-                          {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+              {approvedConsultations
+                .sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
+                .map((consultation) => (
+                <Card key={consultation.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start space-x-4">
+                        <div className="p-2 bg-primary/10 rounded-full">
+                          <User className="w-6 h-6 text-primary" />
                         </div>
-                        {consultation.notes && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Notes: {consultation.notes}
-                          </p>
-                        )}
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2">
+                            <p className="font-semibold text-lg">
+                              {consultation.teacher?.firstName} {consultation.teacher?.lastName}
+                            </p>
+                            <Badge variant="outline" className={getStatusColor(consultation.status)}>
+                              {consultation.status.charAt(0).toUpperCase() + consultation.status.slice(1)}
+                            </Badge>
+                          </div>
+                          <p className="text-muted-foreground">{consultation.purpose}</p>
+                          <div className="flex items-center text-sm text-muted-foreground">
+                            <Clock className="w-4 h-4 mr-1" />
+                            {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+                          </div>
+                          {consultation.notes && (
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Notes: {consultation.notes}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -359,25 +413,36 @@ export default function StudentConsultationsScreen() {
             </TabsContent>
 
             <TabsContent value="completed" className="space-y-4">
-              {completedConsultations.map((consultation) => (
-                <Card key={consultation.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center space-x-3">
-                      <User className="w-10 h-10 text-primary" />
-                      <div>
-                        <p className="font-medium">
-                          {consultation.teacher?.firstName} {consultation.teacher?.lastName}
-                        </p>
-                        <p className="text-sm text-muted-foreground">{consultation.purpose}</p>
-                        <div className="flex items-center text-sm text-muted-foreground mt-1">
-                          <Clock className="w-4 h-4 mr-1" />
-                          {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+              {completedConsultations
+                .sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
+                .map((consultation) => (
+                <Card key={consultation.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start space-x-4">
+                        <div className="p-2 bg-primary/10 rounded-full">
+                          <User className="w-6 h-6 text-primary" />
                         </div>
-                        {consultation.notes && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Notes: {consultation.notes}
-                          </p>
-                        )}
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2">
+                            <p className="font-semibold text-lg">
+                              {consultation.teacher?.firstName} {consultation.teacher?.lastName}
+                            </p>
+                            <Badge variant="outline" className={getStatusColor(consultation.status)}>
+                              {consultation.status.charAt(0).toUpperCase() + consultation.status.slice(1)}
+                            </Badge>
+                          </div>
+                          <p className="text-muted-foreground">{consultation.purpose}</p>
+                          <div className="flex items-center text-sm text-muted-foreground">
+                            <Clock className="w-4 h-4 mr-1" />
+                            {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+                          </div>
+                          {consultation.notes && (
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Notes: {consultation.notes}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -386,25 +451,36 @@ export default function StudentConsultationsScreen() {
             </TabsContent>
 
             <TabsContent value="cancelled" className="space-y-4">
-              {cancelledConsultations.map((consultation) => (
-                <Card key={consultation.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center space-x-3">
-                      <User className="w-10 h-10 text-primary" />
-                      <div>
-                        <p className="font-medium">
-                          {consultation.teacher?.firstName} {consultation.teacher?.lastName}
-                        </p>
-                        <p className="text-sm text-muted-foreground">{consultation.purpose}</p>
-                        <div className="flex items-center text-sm text-muted-foreground mt-1">
-                          <Clock className="w-4 h-4 mr-1" />
-                          {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+              {cancelledConsultations
+                .sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
+                .map((consultation) => (
+                <Card key={consultation.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start space-x-4">
+                        <div className="p-2 bg-primary/10 rounded-full">
+                          <User className="w-6 h-6 text-primary" />
                         </div>
-                        {consultation.notes && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Notes: {consultation.notes}
-                          </p>
-                        )}
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2">
+                            <p className="font-semibold text-lg">
+                              {consultation.teacher?.firstName} {consultation.teacher?.lastName}
+                            </p>
+                            <Badge variant="outline" className={getStatusColor(consultation.status)}>
+                              {consultation.status.charAt(0).toUpperCase() + consultation.status.slice(1)}
+                            </Badge>
+                          </div>
+                          <p className="text-muted-foreground">{consultation.purpose}</p>
+                          <div className="flex items-center text-sm text-muted-foreground">
+                            <Clock className="w-4 h-4 mr-1" />
+                            {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+                          </div>
+                          {consultation.notes && (
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Notes: {consultation.notes}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -412,6 +488,41 @@ export default function StudentConsultationsScreen() {
               ))}
             </TabsContent>
           </Tabs>
+
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold mb-4">Teacher Schedules</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {teachers.map((teacher) => (
+                <Card key={teacher.id}>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>{teacher.firstName} {teacher.lastName}</span>
+                      <Badge variant="outline">{teacher.subject}</Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map(day => {
+                        const daySlots = availableTimeSlots?.filter(slot => slot.day === day) || [];
+                        return daySlots.length > 0 ? (
+                          <div key={day} className="flex items-center space-x-2">
+                            <Calendar className="w-4 h-4 text-primary" />
+                            <span className="font-medium capitalize">{day}:</span>
+                            <span className="text-sm text-muted-foreground">
+                              {daySlots.map(slot => `${slot.startTime}-${slot.endTime}`).join(', ')}
+                            </span>
+                          </div>
+                        ) : null;
+                      })}
+                      {(!availableTimeSlots || availableTimeSlots.length === 0) && (
+                        <p className="text-sm text-muted-foreground">No consultation hours set</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
         </main>
 
         <Dialog 
@@ -423,10 +534,14 @@ export default function StudentConsultationsScreen() {
             }
           }}
         >
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-[600px]">
             <DialogHeader>
               <DialogTitle>Book Consultation</DialogTitle>
+              <DialogDescription>
+                Select a teacher and available time slot for your consultation.
+              </DialogDescription>
             </DialogHeader>
+
             <form onSubmit={(e) => {
               e.preventDefault();
               if (!selectedTeacher || !selectedDate || !selectedTimeSlot || !purpose) {
@@ -439,16 +554,12 @@ export default function StudentConsultationsScreen() {
               }
               bookConsultationMutation.mutate();
             }}>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="teacher">Teacher</Label>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Teacher</Label>
                   <Select
                     value={selectedTeacher?.toString()}
-                    onValueChange={(value) => {
-                      setSelectedTeacher(Number(value));
-                      setSelectedDate(undefined);
-                      setSelectedTimeSlot(null);
-                    }}
+                    onValueChange={(value) => setSelectedTeacher(Number(value))}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select a teacher" />
@@ -463,95 +574,81 @@ export default function StudentConsultationsScreen() {
                   </Select>
                 </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="date">Date</Label>
-                  <Input
-                    id="date"
-                    type="date"
-                    value={selectedDate ? format(selectedDate, "yyyy-MM-dd") : ""}
-                    onChange={(e) => {
-                      const date = new Date(e.target.value);
-                      setSelectedDate(date);
-                      setSelectedTimeSlot(null);
-                    }}
-                    min={format(new Date(), "yyyy-MM-dd")}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <CalendarComponent
+                      mode="single"
+                      selected={selectedDate}
+                      onSelect={(date) => {
+                        setSelectedDate(date);
+                        setSelectedTimeSlot(null);
+                      }}
+                      className="rounded-md border"
+                      disabled={(date) => date < new Date()}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Available Time Slots</Label>
+                    <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto">
+                      {isLoadingSlots ? (
+                        <div className="col-span-2 flex items-center justify-center py-4">
+                          <Loader2 className="h-6 w-6 animate-spin" />
+                        </div>
+                      ) : timeSlots.length > 0 ? (
+                        timeSlots.map((time) => (
+                          <Button
+                            key={time}
+                            type="button"
+                            variant={selectedTimeSlot === time ? "default" : "outline"}
+                            onClick={() => setSelectedTimeSlot(time)}
+                            className="w-full"
+                          >
+                            {time}
+                          </Button>
+                        ))
+                      ) : (
+                        <div className="col-span-2 text-center text-muted-foreground py-4">
+                          {selectedDate ? "No available slots for this date" : "Select a date to see available slots"}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
-                {selectedDate && (
-                  <div className="grid gap-2">
-                    <Label htmlFor="time">Time Slot</Label>
-                    <Select
-                      value={selectedTimeSlot || ""}
-                      onValueChange={setSelectedTimeSlot}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a time slot" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {timeSlots.length > 0 ? (
-                          timeSlots.map((slot) => (
-                            <SelectItem key={slot} value={slot}>
-                              {slot}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <SelectItem value="" disabled>
-                            No available time slots
-                          </SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                <div className="grid gap-2">
-                  <Label htmlFor="purpose">Purpose</Label>
+                <div className="space-y-2">
+                  <Label>Purpose</Label>
                   <Textarea
-                    id="purpose"
                     value={purpose}
                     onChange={(e) => setPurpose(e.target.value)}
-                    placeholder="Enter the purpose of your consultation"
+                    placeholder="What would you like to discuss?"
                     required
                   />
                 </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="notes">Notes (Optional)</Label>
+                <div className="space-y-2">
+                  <Label>Additional Notes (Optional)</Label>
                   <Textarea
-                    id="notes"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Add any additional notes"
+                    placeholder="Any additional information you'd like to share"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setIsBookingModalOpen(false);
-                    resetForm();
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  type="submit"
-                  disabled={bookConsultationMutation.isPending}
-                >
+              <DialogFooter>
+                <Button type="submit" disabled={!selectedTimeSlot || !purpose}>
                   {bookConsultationMutation.isPending ? (
                     <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Booking...
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Submitting...
                     </>
                   ) : (
                     "Book Consultation"
                   )}
                 </Button>
-              </div>
+              </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>

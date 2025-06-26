@@ -23,6 +23,7 @@ import {
 } from "@shared/schema";
 import { db, connection } from './db';
 import { eq, sql, ne, and } from 'drizzle-orm';
+import { ResultSetHeader } from 'mysql2';
 
 export interface TimeSlot {
   day: string;
@@ -68,12 +69,35 @@ export interface IStorage {
   getTeacherAvailability(teacherId: number): Promise<TimeSlot[]>;
   updateTeacherAvailability(teacherId: number, timeSlots: TimeSlot[]): Promise<TimeSlot[]>;
   getAvailableTimeSlots(teacherId: number, date: Date): Promise<TimeSlot[]>;
+  getBookedTimeSlots(teacherId: number, date: Date): Promise<TimeSlot[]>;
 
   // Get all teachers
   getTeachers(): Promise<User[]>;
 
   // New method
   getClassesByStudent(studentId: number): Promise<Class[]>;
+
+  getTeacherByUserId(userId: number): Promise<User | undefined>;
+}
+
+interface ConsultationSlot {
+  id: number;
+  teacherId: number;
+  startTime: string;
+  endTime: string;
+  status: 'available' | 'booked' | 'pending_approval';
+  isActive: boolean;
+}
+
+interface Booking {
+  id: number;
+  slotId: number;
+  studentId: number;
+  consultationId: number;
+  status: 'pending' | 'approved' | 'rejected';
+  purpose: string;
+  teacherNotes: string | null;
+  createdAt: string;
 }
 
 export class DbStorage implements IStorage {
@@ -228,14 +252,24 @@ export class DbStorage implements IStorage {
 
   // Consultation operations
   async getConsultations(): Promise<Consultation[]> {
-    const [rows] = await connection.query('SELECT * FROM consultations ORDER BY date_time DESC');
-    return rows as Consultation[];
+    const [rows] = await connection.query(`
+      SELECT c.*,
+             CONCAT(u.first_name, ' ', u.last_name) as teacher_name,
+             u.first_name as teacher_first_name,
+             u.last_name as teacher_last_name,
+             DATE_FORMAT(c.date_time, '%Y-%m-%dT%H:%i:%s') as date_time
+      FROM consultations c
+      JOIN users u ON c.teacher_id = u.id
+      ORDER BY c.date_time DESC
+    `);
+    return rows as any[];
   }
 
   async getConsultationsByTeacher(teacherId: number): Promise<Consultation[]> {
     const [rows] = await connection.query(`
       SELECT c.*,
-             CONCAT(u.first_name, ' ', u.last_name) as student_name,
+             u.first_name as student_first_name,
+             u.last_name as student_last_name,
              s.student_id as student_number,
              DATE_FORMAT(c.date_time, '%Y-%m-%d %H:%i:%s') as date_time
       FROM consultations c
@@ -244,30 +278,86 @@ export class DbStorage implements IStorage {
       WHERE c.teacher_id = ?
       ORDER BY c.date_time DESC
     `, [teacherId]);
-    return rows as any[];
+    
+    // Transform the rows to match the expected format
+    return (rows as any[]).map(row => {
+      const { date_time, student_first_name, student_last_name, student_number, created_at, ...rest } = row;
+      return {
+        id: rest.id,
+        teacherId: rest.teacher_id,
+        studentId: rest.student_id,
+        duration: rest.duration,
+        purpose: rest.purpose,
+        status: rest.status,
+        notes: rest.notes,
+        dateTime: new Date(date_time), // Convert string to Date
+        createdAt: new Date(created_at), // Convert string to Date
+        student: {
+          firstName: student_first_name,
+          lastName: student_last_name
+        }
+      } as Consultation;
+    });
   }
 
   async getConsultationsByStudent(studentId: number): Promise<Consultation[]> {
     const [rows] = await connection.query(`
       SELECT c.*,
-             CONCAT(u.first_name, ' ', u.last_name) as teacher_name,
+             u.first_name as teacher_first_name,
+             u.last_name as teacher_last_name,
              DATE_FORMAT(c.date_time, '%Y-%m-%dT%H:%i:%s') as date_time
       FROM consultations c
       JOIN users u ON c.teacher_id = u.id
       WHERE c.student_id = ?
       ORDER BY c.date_time DESC
     `, [studentId]);
-    return rows as any[];
+
+    // Transform the rows to match the expected format
+    return (rows as any[]).map(row => ({
+      ...row,
+      teacher: {
+        firstName: row.teacher_first_name,
+        lastName: row.teacher_last_name
+      }
+    }));
   }
 
   async createConsultation(consultation: InsertConsultation): Promise<Consultation> {
-    const result = await connection.query(
-      'INSERT INTO consultations (teacher_id, student_id, date_time, duration, purpose, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [consultation.teacherId, consultation.studentId, consultation.dateTime, consultation.duration, consultation.purpose, consultation.status, consultation.notes]
-    );
-    // @ts-ignore
-    const [rows] = await connection.query('SELECT * FROM consultations WHERE id = ?', [result[0].insertId]);
-    return (rows as Consultation[])[0];
+    try {
+      console.log('Creating consultation with data:', consultation);
+      
+      // Format the date for MySQL
+      const formattedDateTime = new Date(consultation.dateTime).toISOString().slice(0, 19).replace('T', ' ');
+      
+      const [result] = await connection.query(
+        'INSERT INTO consultations (teacher_id, student_id, date_time, duration, purpose, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [consultation.teacherId, consultation.studentId, formattedDateTime, consultation.duration, consultation.purpose, consultation.status, consultation.notes]
+      ) as [ResultSetHeader, any];
+      
+      // Get the created consultation with teacher information
+      const [rows] = await connection.query(`
+        SELECT c.*,
+               u.first_name as teacher_first_name,
+               u.last_name as teacher_last_name,
+               DATE_FORMAT(c.date_time, '%Y-%m-%dT%H:%i:%s') as date_time
+        FROM consultations c
+        JOIN users u ON c.teacher_id = u.id
+        WHERE c.id = ?
+      `, [result.insertId]);
+
+      // Transform the row to match the expected format
+      const row = (rows as any[])[0];
+      return {
+        ...row,
+        teacher: {
+          firstName: row.teacher_first_name,
+          lastName: row.teacher_last_name
+        }
+      };
+    } catch (error) {
+      console.error('Error creating consultation:', error);
+      throw error;
+    }
   }
 
   async updateConsultation(id: number, updates: Partial<InsertConsultation>): Promise<Consultation> {
@@ -286,8 +376,51 @@ export class DbStorage implements IStorage {
       await connection.query(`UPDATE consultations SET ${setParts.join(', ')} WHERE id = ?`, values);
     }
 
-    const [rows] = await connection.query('SELECT * FROM consultations WHERE id = ?', [id]);
-    return (rows as Consultation[])[0];
+    // If the consultation is being approved, update the teacher's availability
+    if (updates.status === 'approved') {
+      const [consultation] = await connection.query(
+        'SELECT date_time, duration FROM consultations WHERE id = ?',
+        [id]
+      ) as [any[], any];
+
+      if (consultation.length > 0) {
+        const { date_time, duration } = consultation[0];
+        const startTime = new Date(date_time);
+        const endTime = new Date(startTime.getTime() + duration * 60000); // Convert duration to milliseconds
+
+        // Insert the booked time slot into teacher_availability
+        await connection.query(
+          'INSERT INTO teacher_availability (teacher_id, day, start_time, end_time) VALUES (?, ?, ?, ?)',
+          [
+            updates.teacherId,
+            startTime.toLocaleDateString('en-US', { weekday: 'long' }),
+            startTime.toTimeString().slice(0, 8),
+            endTime.toTimeString().slice(0, 8)
+          ]
+        );
+      }
+    }
+
+    // Get the updated consultation with teacher information
+    const [rows] = await connection.query(`
+      SELECT c.*,
+             u.first_name as teacher_first_name,
+             u.last_name as teacher_last_name,
+             DATE_FORMAT(c.date_time, '%Y-%m-%dT%H:%i:%s') as date_time
+      FROM consultations c
+      JOIN users u ON c.teacher_id = u.id
+      WHERE c.id = ?
+    `, [id]);
+
+    // Transform the row to match the expected format
+    const row = (rows as any[])[0];
+    return {
+      ...row,
+      teacher: {
+        firstName: row.teacher_first_name,
+        lastName: row.teacher_last_name
+      }
+    };
   }
 
   // Grade operations
@@ -317,154 +450,131 @@ export class DbStorage implements IStorage {
     return rows as any[];
   }
 
-  getTeacherAvailability = async (teacherId: number): Promise<TimeSlot[]> => {
-    const slots = await db.select({
-      day: teacherAvailability.day,
-      startTime: teacherAvailability.startTime,
-      endTime: teacherAvailability.endTime,
-    })
-    .from(teacherAvailability)
-    .where(eq(teacherAvailability.teacherId, teacherId));
+  async getTeacherAvailability(teacherId: number): Promise<TimeSlot[]> {
+    const [rows] = await connection.query(
+      `SELECT 
+        day,
+        start_time as startTime,
+        end_time as endTime
+      FROM teacher_availability 
+      WHERE teacher_id = ?
+      ORDER BY FIELD(day, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')`,
+      [teacherId]
+    );
+    return rows as TimeSlot[];
+  }
 
-    // Format time values to ensure they are in HH:mm format
-    return slots.map(slot => ({
-      day: slot.day,
-      startTime: slot.startTime.substring(0, 5), // Extract HH:mm from HH:mm:ss
-      endTime: slot.endTime.substring(0, 5), // Extract HH:mm from HH:mm:ss
-    }));
-  };
-  updateTeacherAvailability = async (teacherId: number, timeSlots: TimeSlot[]): Promise<TimeSlot[]> => {
+  async updateTeacherAvailability(teacherId: number, timeSlots: TimeSlot[]): Promise<TimeSlot[]> {
     try {
-      // Validate input
-      if (!teacherId || !timeSlots || !Array.isArray(timeSlots)) {
-        throw new Error("Invalid input: teacherId and timeSlots array are required");
-      }
-
-      // Validate each time slot
-      for (const slot of timeSlots) {
-        if (!slot.day || !slot.startTime || !slot.endTime) {
-          throw new Error("Invalid time slot: day, startTime, and endTime are required");
-        }
-      }
-
-      console.log("Starting availability update for teacher:", teacherId);
-      console.log("Time slots to update:", timeSlots);
-
-      // Start a transaction
       await connection.query('START TRANSACTION');
 
-      try {
-        // First delete existing slots
-        console.log("Deleting existing slots...");
+      // Delete existing availability
+      await connection.query(
+        'DELETE FROM teacher_availability WHERE teacher_id = ?',
+        [teacherId]
+      );
+
+      // Insert new availability
+      if (timeSlots.length > 0) {
+        const values = timeSlots.map(slot => [
+          teacherId,
+          slot.day,
+          slot.startTime,
+          slot.endTime
+        ]);
+
         await connection.query(
-          'DELETE FROM teacher_availability WHERE teacher_id = ?',
-          [teacherId]
+          'INSERT INTO teacher_availability (teacher_id, day, start_time, end_time) VALUES ?',
+          [values]
         );
-
-        // Then insert new slots
-        console.log("Inserting new slots...");
-        for (const slot of timeSlots) {
-          // Format time values to ensure they are in HH:mm:ss format
-          const startTime = slot.startTime.padEnd(8, ':00');
-          const endTime = slot.endTime.padEnd(8, ':00');
-
-          console.log("Inserting slot:", { day: slot.day, startTime, endTime });
-
-          await connection.query(
-            'INSERT INTO teacher_availability (teacher_id, day, start_time, end_time) VALUES (?, ?, ?, ?)',
-            [teacherId, slot.day, startTime, endTime]
-          );
-        }
-
-        // Commit the transaction
-        await connection.query('COMMIT');
-
-        // Return the updated slots
-        const [updatedSlots] = await connection.query(
-          'SELECT day, TIME_FORMAT(start_time, "%H:%i") as startTime, TIME_FORMAT(end_time, "%H:%i") as endTime FROM teacher_availability WHERE teacher_id = ?',
-          [teacherId]
-        );
-
-        console.log("Updated slots:", updatedSlots);
-        return updatedSlots as TimeSlot[];
-      } catch (error) {
-        // Rollback the transaction if there's an error
-        console.error("Error during transaction, rolling back:", error);
-        await connection.query('ROLLBACK');
-        throw error;
       }
+
+      await connection.query('COMMIT');
+      return this.getTeacherAvailability(teacherId);
     } catch (error) {
-      console.error("Error updating teacher availability:", error);
-      if (error instanceof Error) {
-        throw new Error(`Failed to update availability: ${error.message}`);
-      }
-      throw new Error("Failed to update availability: Unknown error");
+      await connection.query('ROLLBACK');
+      throw error;
     }
-  };
-  getAvailableTimeSlots = async (teacherId: number, date: Date): Promise<TimeSlot[]> => {
-    // Get the day of the week (0-6, where 0 is Sunday)
-    const dayOfWeek = date.getDay();
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const day = days[dayOfWeek];
+  }
+
+  async getAvailableTimeSlots(teacherId: number, date: Date): Promise<TimeSlot[]> {
+    const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
+    const formattedDate = date.toISOString().split('T')[0];
 
     // Get teacher's availability for the day
     const [availabilityRows] = await connection.query(
-      'SELECT * FROM teacher_availability WHERE teacher_id = ? AND day = ?',
-      [teacherId, day]
+      'SELECT start_time, end_time FROM teacher_availability WHERE teacher_id = ? AND day = ?',
+      [teacherId, dayOfWeek]
     );
-    const availability = availabilityRows as TimeSlot[];
 
-    // Get existing consultations for the date
-    const [consultationRows] = await connection.query(
-      'SELECT DATE_FORMAT(date_time, "%H:%i") as time FROM consultations WHERE teacher_id = ? AND DATE(date_time) = ?',
-      [teacherId, date.toISOString().split('T')[0]]
-    );
-    const bookedTimes = (consultationRows as { time: string }[]).map(row => row.time);
+    if (!availabilityRows || (availabilityRows as any[]).length === 0) {
+      return [];
+    }
 
-    // Generate 30-minute slots and filter out booked times
+    // Get booked time slots for the day
+    const bookedSlots = await this.getBookedTimeSlots(teacherId, date);
+
+    // Generate available time slots
     const availableSlots: TimeSlot[] = [];
-    
-    for (const slot of availability) {
-      let currentTime = slot.startTime;
-      const endTime = slot.endTime;
+    for (const availability of availabilityRows as any[]) {
+      const [startHour, startMinute] = availability.start_time.split(':').map(Number);
+      const [endHour, endMinute] = availability.end_time.split(':').map(Number);
+
+      let currentTime = new Date(date);
+      currentTime.setHours(startHour, startMinute, 0, 0);
+      const endTime = new Date(date);
+      endTime.setHours(endHour, endMinute, 0, 0);
 
       while (currentTime < endTime) {
-        // Check if this 30-minute slot is available
-        const isBooked = bookedTimes.some(bookedTime => {
-          const [bookedHour, bookedMinute] = bookedTime.split(':').map(Number);
-          const [currentHour, currentMinute] = currentTime.split(':').map(Number);
-          
-          // Check if the booked time falls within this 30-minute slot
-          return (
-            (bookedHour === currentHour && bookedMinute >= currentMinute && bookedMinute < currentMinute + 30) ||
-            (bookedHour === currentHour + 1 && currentMinute >= 30 && bookedMinute < (currentMinute + 30) % 60)
-          );
-        });
+        const slotEndTime = new Date(currentTime.getTime() + 30 * 60000); // 30 minutes
+        if (slotEndTime <= endTime) {
+          const slot: TimeSlot = {
+            day: dayOfWeek,
+            startTime: currentTime.toTimeString().slice(0, 8),
+            endTime: slotEndTime.toTimeString().slice(0, 8)
+          };
 
-        if (!isBooked) {
-          // Calculate end time for this 30-minute slot
-          const [hours, minutes] = currentTime.split(':').map(Number);
-          const slotEndDate = new Date();
-          slotEndDate.setHours(hours, minutes + 30);
-          const slotEndTime = `${String(slotEndDate.getHours()).padStart(2, '0')}:${String(slotEndDate.getMinutes()).padStart(2, '0')}`;
-
-          availableSlots.push({
-            day,
-            startTime: currentTime,
-            endTime: slotEndTime
+          // Check if this slot overlaps with any booked slots
+          const isBooked = bookedSlots.some(booked => {
+            const bookedStart = new Date(`${formattedDate}T${booked.startTime}`);
+            const bookedEnd = new Date(`${formattedDate}T${booked.endTime}`);
+            return (
+              (currentTime >= bookedStart && currentTime < bookedEnd) ||
+              (slotEndTime > bookedStart && slotEndTime <= bookedEnd) ||
+              (currentTime <= bookedStart && slotEndTime >= bookedEnd)
+            );
           });
-        }
 
-        // Move to next 30-minute slot
-        const [hours, minutes] = currentTime.split(':').map(Number);
-        const nextSlotDate = new Date();
-        nextSlotDate.setHours(hours, minutes + 30);
-        currentTime = `${String(nextSlotDate.getHours()).padStart(2, '0')}:${String(nextSlotDate.getMinutes()).padStart(2, '0')}`;
+          if (!isBooked) {
+            availableSlots.push(slot);
+          }
+        }
+        currentTime = slotEndTime;
       }
     }
 
     return availableSlots;
-  };
+  }
+
+  async getBookedTimeSlots(teacherId: number, date: Date): Promise<TimeSlot[]> {
+    const formattedDate = date.toISOString().split('T')[0];
+    const [rows] = await connection.query(`
+      SELECT 
+        DATE_FORMAT(date_time, '%W') as day,
+        DATE_FORMAT(date_time, '%H:%i:%s') as startTime,
+        DATE_FORMAT(DATE_ADD(date_time, INTERVAL duration MINUTE), '%H:%i:%s') as endTime
+      FROM consultations 
+      WHERE teacher_id = ? 
+      AND DATE(date_time) = ?
+      AND status = 'approved'
+    `, [teacherId, formattedDate]);
+
+    return (rows as any[]).map(row => ({
+      day: row.day,
+      startTime: row.startTime,
+      endTime: row.endTime
+    }));
+  }
 
   // Get all teachers
   async getTeachers(): Promise<User[]> {
@@ -476,15 +586,168 @@ export class DbStorage implements IStorage {
 
   async getClassesByStudent(studentId: number): Promise<Class[]> {
     const [rows] = await connection.query(`
-      SELECT c.*, 
-             CONCAT(u.first_name, ' ', u.last_name) as teacher_name
+      SELECT 
+        c.*,
+        u.id as teacher_id,
+        u.first_name,
+        u.last_name
       FROM classes c
       JOIN class_enrollments ce ON c.id = ce.class_id
       JOIN users u ON c.teacher_id = u.id
       WHERE ce.student_id = ?
-      ORDER BY c.name
     `, [studentId]);
-    return rows as Class[];
+    
+    // Map the rows to match the Class type
+    return (rows as any[]).map(row => ({
+      id: row.id,
+      name: row.name,
+      code: row.code,
+      teacherId: row.teacher_id,
+      room: row.room,
+      maxStudents: row.max_students,
+      schedule: row.schedule,
+      semester: row.semester,
+      description: row.description,
+      createdAt: row.created_at, // return as string
+      // Add teacher information
+      first_name: row.first_name,
+      last_name: row.last_name
+    })) as Class[];
+  }
+
+  async getTeacherByUserId(userId: number): Promise<User | undefined> {
+    const [rows] = await connection.query(`
+      SELECT * FROM users 
+      WHERE id = ? AND role = 'teacher'
+    `, [userId]);
+    const users = rows as User[];
+    return users.length > 0 ? users[0] : undefined;
+  }
+
+  async createConsultationSlots(teacherId: number, startTime: string, endTime: string): Promise<ConsultationSlot[]> {
+    const slots: Omit<ConsultationSlot, 'id'>[] = [];
+    let current = new Date(startTime);
+    const end = new Date(endTime);
+    
+    while (current < end) {
+      const slotEnd = new Date(current.getTime() + 30 * 60000);
+      
+      if (slotEnd <= end) {
+        slots.push({
+          teacherId,
+          startTime: current.toISOString(),
+          endTime: slotEnd.toISOString(),
+          status: 'available',
+          isActive: true
+        });
+      }
+      
+      current = slotEnd;
+    }
+
+    const [result] = await connection.query(
+      'INSERT INTO consultation_slots (teacher_id, start_time, end_time, status, is_active) VALUES ?',
+      [slots.map(slot => [slot.teacherId, slot.startTime, slot.endTime, slot.status, slot.isActive])]
+    ) as [ResultSetHeader, any];
+
+    return this.getConsultationSlots(teacherId, startTime, endTime);
+  }
+
+  async getConsultationSlots(teacherId: number, startTime: string, endTime: string): Promise<ConsultationSlot[]> {
+    try {
+      const [rows] = await connection.query(
+        `SELECT 
+          id,
+          teacher_id as teacherId,
+          DATE_FORMAT(start_time, '%Y-%m-%dT%H:%i:%s') as startTime,
+          DATE_FORMAT(end_time, '%Y-%m-%dT%H:%i:%s') as endTime,
+          status
+        FROM consultation_slots 
+        WHERE teacher_id = ? 
+        AND start_time >= ? 
+        AND end_time <= ?`,
+        [teacherId, startTime, endTime]
+      ) as [ConsultationSlot[], any];
+
+      return rows;
+    } catch (error) {
+      console.error('Error fetching consultation slots:', error);
+      throw error;
+    }
+  }
+
+  async createBooking(slotId: number, studentId: number, purpose: string, notes?: string): Promise<Booking> {
+    const [result] = await connection.query(
+      'INSERT INTO bookings (slot_id, student_id, status, purpose, teacher_notes) VALUES (?, ?, ?, ?, ?)',
+      [slotId, studentId, 'pending', purpose, notes || null]
+    ) as [ResultSetHeader, any];
+
+    await connection.query(
+      'UPDATE consultation_slots SET status = ? WHERE id = ?',
+      ['pending_approval', slotId]
+    );
+
+    const [rows] = await connection.query(
+      'SELECT * FROM bookings WHERE id = ?',
+      [result.insertId]
+    ) as [Booking[], any];
+
+    return rows[0];
+  }
+
+  async updateBookingStatus(bookingId: number, status: 'approved' | 'rejected', teacherNotes?: string): Promise<Booking> {
+    const [booking] = await connection.query(
+      'SELECT * FROM bookings WHERE id = ?',
+      [bookingId]
+    ) as [Booking[], any];
+
+    if (status === 'approved') {
+      // Create consultation record
+      const [slot] = await connection.query(
+        'SELECT * FROM consultation_slots WHERE id = ?',
+        [booking[0].slotId]
+      ) as [ConsultationSlot[], any];
+
+      const consultation = await this.createConsultation({
+        teacherId: slot[0].teacherId,
+        studentId: booking[0].studentId,
+        dateTime: slot[0].startTime,
+        duration: 30,
+        purpose: booking[0].purpose,
+        status: "approved"
+      });
+
+      // Update booking with consultation ID and teacher notes
+      await connection.query(
+        'UPDATE bookings SET consultation_id = ?, status = ?, teacher_notes = ? WHERE id = ?',
+        [consultation.id, status, teacherNotes || null, bookingId]
+      );
+
+      // Update slot status
+      await connection.query(
+        'UPDATE consultation_slots SET status = ? WHERE id = ?',
+        ['booked', booking[0].slotId]
+      );
+    } else {
+      // Update booking status and teacher notes
+      await connection.query(
+        'UPDATE bookings SET status = ?, teacher_notes = ? WHERE id = ?',
+        [status, teacherNotes || null, bookingId]
+      );
+
+      // Reset slot status
+      await connection.query(
+        'UPDATE consultation_slots SET status = ? WHERE id = ?',
+        ['available', booking[0].slotId]
+      );
+    }
+
+    const [rows] = await connection.query(
+      'SELECT * FROM bookings WHERE id = ?',
+      [bookingId]
+    ) as [Booking[], any];
+
+    return rows[0];
   }
 }
 

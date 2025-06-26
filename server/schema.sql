@@ -63,31 +63,59 @@ CREATE TABLE IF NOT EXISTS attendance_records (
     FOREIGN KEY (marked_by) REFERENCES users(id)
 );
 
+-- Teacher availability table
+CREATE TABLE IF NOT EXISTS teacher_availability (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    teacher_id INT NOT NULL,
+    day VARCHAR(20) NOT NULL,
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (teacher_id) REFERENCES users(id)
+);
+
+-- Consultation slots table
+CREATE TABLE IF NOT EXISTS consultation_slots (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    teacher_id INT NOT NULL,
+    start_time DATETIME NOT NULL,
+    end_time DATETIME NOT NULL,
+    status ENUM('available', 'booked', 'pending_approval') NOT NULL DEFAULT 'available',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (teacher_id) REFERENCES users(id)
+);
+
+-- Bookings table
+CREATE TABLE IF NOT EXISTS bookings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    slot_id INT NOT NULL,
+    student_id INT NOT NULL,
+    consultation_id INT,
+    status VARCHAR(20) NOT NULL,
+    purpose VARCHAR(1000),
+    teacher_notes VARCHAR(1000),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (slot_id) REFERENCES consultation_slots(id),
+    FOREIGN KEY (student_id) REFERENCES students(id)
+);
+
 -- Consultations table
 CREATE TABLE IF NOT EXISTS consultations (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT,
     teacher_id INT NOT NULL,
     student_id INT NOT NULL,
     date_time TIMESTAMP NOT NULL,
     duration INT DEFAULT 60,
     purpose TEXT,
-    status VARCHAR(50) NOT NULL DEFAULT 'pending',
+    status ENUM('pending', 'approved', 'rejected', 'completed', 'cancelled') DEFAULT 'pending',
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL,
     FOREIGN KEY (teacher_id) REFERENCES users(id),
     FOREIGN KEY (student_id) REFERENCES students(id)
-);
-
--- Teacher availability table
-CREATE TABLE IF NOT EXISTS teacher_availability (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    teacher_id INT NOT NULL,
-    day VARCHAR(10) NOT NULL,
-    start_time TIME NOT NULL,
-    end_time TIME NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (teacher_id) REFERENCES users(id),
-    UNIQUE KEY unique_teacher_slot (teacher_id, day, start_time, end_time)
 );
 
 -- Assignments table
@@ -116,4 +144,12 @@ CREATE TABLE IF NOT EXISTS grades (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (assignment_id) REFERENCES assignments(id),
     FOREIGN KEY (student_id) REFERENCES students(id)
-); 
+);
+
+-- Add indexes for performance
+CREATE INDEX idx_slots_teacher ON consultation_slots(teacher_id);
+CREATE INDEX idx_slots_start ON consultation_slots(start_time);
+CREATE INDEX idx_bookings_student ON bookings(student_id);
+CREATE INDEX idx_bookings_status ON bookings(status);
+
+SHOW TABLES;
