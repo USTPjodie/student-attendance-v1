@@ -342,7 +342,47 @@ export default function StudentDashboard() {
                       Book New Consultation
                     </Button>
                   </div>
-                  <p className="text-slate-600">No consultations scheduled yet.</p>
+                  
+                  {consultations && consultations.length > 0 ? (
+                    <div className="space-y-4">
+                      {consultations.map((consultation) => (
+                        <div key={consultation.id} className="border border-slate-200 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                                <Calendar className="w-5 h-5 text-purple-600" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-slate-900">
+                                  {consultation.teacher?.firstName} {consultation.teacher?.lastName}
+                                </p>
+                                <p className="text-sm text-slate-500">
+                                  {consultation.purpose}
+                                </p>
+                              </div>
+                            </div>
+                            <Badge className={getStatusColor(consultation.status)}>
+                              {consultation.status.charAt(0).toUpperCase() + consultation.status.slice(1)}
+                            </Badge>
+                          </div>
+                          
+                          <div className="flex items-center text-sm text-slate-600 mt-2">
+                            <Clock className="w-4 h-4 mr-1" />
+                            {consultation.dateTime ? format(new Date(consultation.dateTime), "MMM d, yyyy h:mm a") : "Date not set"}
+                          </div>
+                          
+                          {consultation.notes && (
+                            <div className="mt-2 text-sm text-slate-600">
+                              <p className="font-medium">Notes:</p>
+                              <p>{consultation.notes}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-slate-600">No consultations scheduled yet.</p>
+                  )}
                 </div>
               </TabsContent>
 

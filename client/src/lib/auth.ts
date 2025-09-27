@@ -3,7 +3,6 @@ import { apiRequest } from "./queryClient";
 export interface LoginCredentials {
   email: string;
   password: string;
-  role: "teacher" | "student";
 }
 
 export interface User {
@@ -22,6 +21,7 @@ export interface User {
 }
 
 export async function login(credentials: LoginCredentials): Promise<User> {
+  // The backend will determine the role based on the user's data
   const response = await apiRequest("POST", "/api/auth/login", credentials);
   const data = await response.json();
   return data.user;

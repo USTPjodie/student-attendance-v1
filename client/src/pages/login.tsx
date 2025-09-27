@@ -11,7 +11,6 @@ import { GraduationCap } from "lucide-react";
 
 export default function Login() {
   const [, setLocation] = useLocation();
-  const [loginType, setLoginType] = useState<"teacher" | "student">("teacher");
   const [credentials, setCredentials] = useState({
     email: "",
     password: "",
@@ -40,9 +39,10 @@ export default function Login() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // We no longer need to pass the role, it will be determined on the backend
     loginMutation.mutate({
-      ...credentials,
-      role: loginType,
+      ...credentials
+      // Role will be determined by the backend based on user data
     });
   };
 
@@ -57,32 +57,6 @@ export default function Login() {
             </div>
             <h1 className="text-2xl font-bold text-slate-900">USTP Attendance</h1>
             <p className="text-slate-600 mt-2">Management System</p>
-          </div>
-
-          {/* Login Type Toggle */}
-          <div className="flex bg-slate-100 rounded-lg p-1 mb-6">
-            <button
-              type="button"
-              onClick={() => setLoginType("teacher")}
-              className={`flex-1 py-2 px-4 rounded-md font-medium transition-all ${
-                loginType === "teacher"
-                  ? "bg-ustp-navy text-white"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Teacher
-            </button>
-            <button
-              type="button"
-              onClick={() => setLoginType("student")}
-              className={`flex-1 py-2 px-4 rounded-md font-medium transition-all ${
-                loginType === "student"
-                  ? "bg-ustp-navy text-white"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Student
-            </button>
           </div>
 
           {/* Login Form */}

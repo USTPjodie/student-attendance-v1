@@ -65,6 +65,10 @@ export interface IStorage {
   createConsultation(consultation: InsertConsultation): Promise<Consultation>;
   updateConsultation(id: number, updates: Partial<InsertConsultation>): Promise<Consultation>;
 
+  // Booking operations
+  getBookingsByTeacher(teacherId: number): Promise<Booking[]>;
+  getBookingsByStudent(studentId: number): Promise<Booking[]>;
+
   // Teacher availability operations
   getTeacherAvailability(teacherId: number): Promise<TimeSlot[]>;
   updateTeacherAvailability(teacherId: number, timeSlots: TimeSlot[]): Promise<TimeSlot[]>;
@@ -98,6 +102,12 @@ interface Booking {
   purpose: string;
   teacherNotes: string | null;
   createdAt: string;
+  teacher?: {
+    firstName: string;
+    lastName: string;
+  };
+  dateTime?: string; // Add this property
+  teacherId?: number; // Add this property
 }
 
 export class DbStorage implements IStorage {
@@ -271,7 +281,8 @@ export class DbStorage implements IStorage {
              u.first_name as student_first_name,
              u.last_name as student_last_name,
              s.student_id as student_number,
-             DATE_FORMAT(c.date_time, '%Y-%m-%d %H:%i:%s') as date_time
+             DATE_FORMAT(c.date_time, '%Y-%m-%dT%H:%i:%s') as date_time,
+             c.created_at as created_at
       FROM consultations c
       JOIN students s ON c.student_id = s.id
       JOIN users u ON s.user_id = u.id
@@ -290,8 +301,9 @@ export class DbStorage implements IStorage {
         purpose: rest.purpose,
         status: rest.status,
         notes: rest.notes,
-        dateTime: new Date(date_time), // Convert string to Date
-        createdAt: new Date(created_at), // Convert string to Date
+        bookingId: rest.booking_id || null,
+        dateTime: date_time, // Ensure dateTime is a string
+        createdAt: created_at, // Ensure createdAt is a string
         student: {
           firstName: student_first_name,
           lastName: student_last_name
@@ -318,7 +330,9 @@ export class DbStorage implements IStorage {
       teacher: {
         firstName: row.teacher_first_name,
         lastName: row.teacher_last_name
-      }
+      },
+      dateTime: row.date_time, // Ensure dateTime is a string
+      createdAt: row.created_at // Ensure createdAt is a string
     }));
   }
 
@@ -331,7 +345,7 @@ export class DbStorage implements IStorage {
       
       const [result] = await connection.query(
         'INSERT INTO consultations (teacher_id, student_id, date_time, duration, purpose, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [consultation.teacherId, consultation.studentId, formattedDateTime, consultation.duration, consultation.purpose, consultation.status, consultation.notes]
+        [consultation.teacherId, consultation.studentId, formattedDateTime, consultation.duration, consultation.purpose, consultation.status, consultation.notes || null]
       ) as [ResultSetHeader, any];
       
       // Get the created consultation with teacher information
@@ -423,6 +437,76 @@ export class DbStorage implements IStorage {
     };
   }
 
+  // Booking operations
+  async getBookingsByTeacher(teacherId: number): Promise<Booking[]> {
+    const [rows] = await connection.query(`
+      SELECT 
+        b.*,
+        s.student_id as student_number,
+        u.first_name as student_first_name,
+        u.last_name as student_last_name,
+        cs.start_time,
+        cs.end_time
+      FROM bookings b
+      JOIN consultation_slots cs ON b.slot_id = cs.id
+      JOIN students s ON b.student_id = s.id
+      JOIN users u ON s.user_id = u.id
+      WHERE cs.teacher_id = ? AND b.status = 'pending'
+      ORDER BY cs.start_time ASC
+    `, [teacherId]);
+
+    // Transform the rows to match the expected format
+    return (rows as any[]).map(row => ({
+      id: row.id,
+      slotId: row.slot_id,
+      studentId: row.student_id,
+      consultationId: row.consultation_id,
+      status: row.status,
+      purpose: row.purpose,
+      teacherNotes: row.teacher_notes,
+      createdAt: row.created_at,
+      student: {
+        firstName: row.student_first_name,
+        lastName: row.student_last_name
+      },
+      dateTime: row.start_time // Add dateTime for consistency with consultations
+    }));
+  }
+
+  async getBookingsByStudent(studentId: number): Promise<Booking[]> {
+    const [rows] = await connection.query(`
+      SELECT 
+        b.*,
+        u.first_name as teacher_first_name,
+        u.last_name as teacher_last_name,
+        cs.start_time,
+        cs.end_time,
+        cs.teacher_id as teacher_id
+      FROM bookings b
+      JOIN consultation_slots cs ON b.slot_id = cs.id
+      JOIN users u ON cs.teacher_id = u.id
+      WHERE b.student_id = ?
+      ORDER BY cs.start_time DESC
+    `, [studentId]);
+
+    // Transform the rows to match the expected format
+    return (rows as any[]).map(row => ({
+      id: row.id,
+      slotId: row.slot_id,
+      studentId: row.student_id,
+      consultationId: row.consultation_id,
+      status: row.status,
+      purpose: row.purpose,
+      teacherNotes: row.teacher_notes,
+      createdAt: row.created_at,
+      teacher: {
+        firstName: row.teacher_first_name,
+        lastName: row.teacher_last_name
+      },
+      dateTime: row.start_time, // Add dateTime for consistency with consultations
+      teacherId: row.teacher_id // Add teacherId
+    }));
+  }
   // Grade operations
   async getGradesByStudent(studentId: number): Promise<Grade[]> {
     const [rows] = await connection.query(`
@@ -633,10 +717,16 @@ export class DbStorage implements IStorage {
       const slotEnd = new Date(current.getTime() + 30 * 60000);
       
       if (slotEnd <= end) {
+        // For DATETIME columns, we should keep the full datetime format
+        // No need to format as time only since the database expects DATETIME
+        const formatMySQLDateTime = (date: Date): string => {
+          return date.toISOString().slice(0, 19).replace('T', ' ');
+        };
+        
         slots.push({
           teacherId,
-          startTime: current.toISOString(),
-          endTime: slotEnd.toISOString(),
+          startTime: formatMySQLDateTime(current),
+          endTime: formatMySQLDateTime(slotEnd),
           status: 'available',
           isActive: true
         });
@@ -645,27 +735,40 @@ export class DbStorage implements IStorage {
       current = slotEnd;
     }
 
+    if (slots.length === 0) {
+      return [];
+    }
+
     const [result] = await connection.query(
       'INSERT INTO consultation_slots (teacher_id, start_time, end_time, status, is_active) VALUES ?',
-      [slots.map(slot => [slot.teacherId, slot.startTime, slot.endTime, slot.status, slot.isActive])]
+      [slots.map(slot => [slot.teacherId, slot.startTime, slot.endTime, slot.status, slot.isActive ? 1 : 0])]
     ) as [ResultSetHeader, any];
 
-    return this.getConsultationSlots(teacherId, startTime, endTime);
+    // Return the inserted slots directly instead of querying them back
+    // This avoids issues with date comparison
+    const insertedSlots = slots.map((slot, index) => ({
+      id: result.insertId + index,
+      teacherId: slot.teacherId,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      status: slot.status
+    }));
+
+    return insertedSlots as ConsultationSlot[];
   }
 
   async getConsultationSlots(teacherId: number, startTime: string, endTime: string): Promise<ConsultationSlot[]> {
     try {
+      // For DATETIME columns, we can use proper date comparison
       const [rows] = await connection.query(
         `SELECT 
           id,
           teacher_id as teacherId,
-          DATE_FORMAT(start_time, '%Y-%m-%dT%H:%i:%s') as startTime,
-          DATE_FORMAT(end_time, '%Y-%m-%dT%H:%i:%s') as endTime,
+          start_time as startTime,
+          end_time as endTime,
           status
         FROM consultation_slots 
-        WHERE teacher_id = ? 
-        AND start_time >= ? 
-        AND end_time <= ?`,
+        WHERE teacher_id = ? AND start_time >= ? AND end_time <= ?`,
         [teacherId, startTime, endTime]
       ) as [ConsultationSlot[], any];
 
@@ -696,25 +799,56 @@ export class DbStorage implements IStorage {
   }
 
   async updateBookingStatus(bookingId: number, status: 'approved' | 'rejected', teacherNotes?: string): Promise<Booking> {
-    const [booking] = await connection.query(
+    const [bookingRows] = await connection.query(
       'SELECT * FROM bookings WHERE id = ?',
       [bookingId]
-    ) as [Booking[], any];
+    ) as [any[], any];
+
+    if (!bookingRows || bookingRows.length === 0) {
+      throw new Error('Booking not found');
+    }
+
+    const booking = bookingRows[0];
+    console.log('Booking data:', booking);
+    console.log('Booking slotId:', booking.slotId);
+
+    // Access the slot_id directly since that's what the database returns
+    const slotId = booking.slot_id;
+    console.log('Using slotId:', slotId);
 
     if (status === 'approved') {
       // Create consultation record
-      const [slot] = await connection.query(
+      console.log('Querying for slot with ID:', slotId);
+      const [slotRows] = await connection.query(
         'SELECT * FROM consultation_slots WHERE id = ?',
-        [booking[0].slotId]
-      ) as [ConsultationSlot[], any];
+        [slotId]
+      ) as [any[], any];
+
+      console.log('Slot rows:', slotRows);
+      console.log('Slot rows length:', slotRows ? slotRows.length : 'undefined');
+
+      if (!slotRows || slotRows.length === 0) {
+        // Let's also try querying all slots to see what's available
+        const [allSlots] = await connection.query('SELECT * FROM consultation_slots') as [any[], any];
+        console.log('All slots in database:', allSlots);
+        throw new Error('Consultation slot not found');
+      }
+
+      const slot = slotRows[0];
+      console.log('Slot data:', slot);
+
+      // Access properties directly since that's what the database returns
+      const teacherId = slot.teacher_id;
+      console.log('Using teacherId:', teacherId);
 
       const consultation = await this.createConsultation({
-        teacherId: slot[0].teacherId,
-        studentId: booking[0].studentId,
-        dateTime: slot[0].startTime,
+        teacherId: teacherId,
+        studentId: booking.student_id,
+        dateTime: new Date(slot.start_time), // Convert to Date object
         duration: 30,
-        purpose: booking[0].purpose,
-        status: "approved"
+        purpose: booking.purpose,
+        status: "approved",
+        bookingId: bookingId  // Add the bookingId to link the consultation to the booking
       });
 
       // Update booking with consultation ID and teacher notes
@@ -726,7 +860,7 @@ export class DbStorage implements IStorage {
       // Update slot status
       await connection.query(
         'UPDATE consultation_slots SET status = ? WHERE id = ?',
-        ['booked', booking[0].slotId]
+        ['booked', slotId]
       );
     } else {
       // Update booking status and teacher notes
@@ -738,7 +872,7 @@ export class DbStorage implements IStorage {
       // Reset slot status
       await connection.query(
         'UPDATE consultation_slots SET status = ? WHERE id = ?',
-        ['available', booking[0].slotId]
+        ['available', slotId]
       );
     }
 

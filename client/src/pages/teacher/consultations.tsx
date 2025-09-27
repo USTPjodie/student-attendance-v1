@@ -106,6 +106,37 @@ export default function ConsultationsScreen() {
     },
   });
 
+  // New mutation for updating consultation status (completed/cancelled)
+  const updateConsultationStatusMutation = useMutation({
+    mutationFn: async ({ consultationId, status }: { consultationId: number; status: 'completed' | 'cancelled' }) => {
+      const response = await fetch(`/api/consultations/${consultationId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update consultation status');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/consultations'] });
+      toast({
+        title: 'Status updated',
+        description: 'The consultation status has been updated successfully.',
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update status. Please try again.',
+        variant: 'destructive',
+      });
+    },
+  });
+
   const updateAvailabilityMutation = useMutation({
     mutationFn: async (timeSlots: TimeSlot[]) => {
       const response = await fetch("/api/availability", {
@@ -261,8 +292,39 @@ export default function ConsultationsScreen() {
                                   <div className="mt-2 text-red-700 text-xs font-semibold">Consultation rejected</div>
                                 )}
                                 {consultation.status === 'approved' && (
-                                  <div className="mt-2 text-blue-700 text-xs font-semibold">Consultation approved</div>
+                                  <div className="mt-2">
+                                    {/* Check if the consultation time has passed */}
+                                    {new Date(consultation.dateTime) < new Date() ? (
+                                      // Show Complete and Cancel buttons for past consultations
+                                      <div className="flex space-x-2">
+                                        <Button
+                                          size="sm"
+                                          variant="default"
+                                          onClick={() => updateConsultationStatusMutation.mutate({
+                                            consultationId: consultation.id,
+                                            status: 'completed'
+                                          })}
+                                        >
+                                          Complete
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="destructive"
+                                          onClick={() => updateConsultationStatusMutation.mutate({
+                                            consultationId: consultation.id,
+                                            status: 'cancelled'
+                                          })}
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      // Show "Consultation approved" message for future consultations
+                                      <div className="text-blue-700 text-xs font-semibold">Consultation approved</div>
+                                    )}
+                                  </div>
                                 )}
+
                               </div>
                             </div>
                           </CardContent>

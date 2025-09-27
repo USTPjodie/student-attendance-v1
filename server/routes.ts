@@ -12,13 +12,20 @@ interface UserWithStudent extends User {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check endpoint
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   // Authentication routes
   app.post("/api/auth/login", async (req, res) => {
     try {
-      const { email, password, role } = req.body;
+      // Remove role from the destructuring since we'll determine it from the database
+      const { email, password } = req.body;
       
+      // Get user by email - the role is stored in the database
       const user = await storage.getUserByEmail(email);
-      if (!user || user.role !== role) {
+      if (!user) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
@@ -28,13 +35,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
-      // Set session
+      // Set session with the role from the database
       (req as any).session.userId = user.id;
       (req as any).session.userRole = user.role;
 
       // Get additional data based on role
       let userData: UserWithStudent = { ...user };
-      if (role === "student") {
+      if (user.role === "student") {
         const student = await storage.getStudentByUserId(user.id);
         userData = { ...userData, student };
       }
@@ -231,13 +238,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let consultations;
       if (userRole === "teacher") {
-        consultations = await storage.getConsultationsByTeacher(userId);
+        // For teachers, get both consultations and pending bookings
+        const teacherConsultations = await storage.getConsultationsByTeacher(userId);
+        const pendingBookings = await storage.getBookingsByTeacher(userId);
+        
+        // Combine consultations and bookings into a single array
+        consultations = [
+          ...teacherConsultations,
+          ...pendingBookings.map(booking => ({
+            id: booking.id,
+            teacherId: userId, // We know this is the teacher's ID
+            studentId: booking.studentId,
+            dateTime: new Date((booking as any).dateTime).toISOString(), // Convert to ISO string
+            duration: 30, // Default duration for bookings
+            purpose: booking.purpose,
+            status: booking.status,
+            notes: booking.teacherNotes || null,
+            bookingId: booking.id, // Link to the booking
+            createdAt: new Date(booking.createdAt).toISOString(), // Convert to ISO string
+            student: (booking as any).student
+          }))
+        ];
       } else {
+        // For students, get both consultations and their bookings
         const student = await storage.getStudentByUserId(userId);
         if (!student) {
           return res.status(404).json({ message: "Student not found" });
         }
-        consultations = await storage.getConsultationsByStudent(student.id);
+        
+        // For students, get both consultations and their bookings
+        const studentConsultations = await storage.getConsultationsByStudent(student.id);
+        const studentBookings = await storage.getBookingsByStudent(student.id);
+        
+        // Combine consultations and bookings into a single array
+        // Filter out bookings that have already been converted to consultations
+        // A booking is converted to a consultation when it has a consultation_id
+        const convertedBookingIds = studentBookings
+          .filter(booking => booking.consultationId !== null && booking.consultationId !== undefined)
+          .map(booking => booking.id);
+        const filteredBookings = studentBookings.filter(booking => !convertedBookingIds.includes(booking.id));
+        
+        consultations = [
+          ...studentConsultations,
+          ...filteredBookings.map(booking => ({
+            id: `booking-${booking.id}`, // Prefix to ensure unique IDs
+            teacherId: booking.teacherId, // Get teacher ID from the booking
+            studentId: student.id,
+            dateTime: booking.dateTime ? new Date(booking.dateTime).toISOString() : new Date(booking.createdAt).toISOString(), // Convert to ISO string
+            duration: 30, // Default duration for bookings
+            purpose: booking.purpose,
+            status: booking.status,
+            notes: booking.teacherNotes || null,
+            bookingId: booking.id, // Link to the booking
+            createdAt: new Date(booking.createdAt).toISOString(), // Convert to ISO string
+            teacher: booking.teacher
+          }))
+        ];
       }
 
       res.json(consultations);
@@ -469,14 +525,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const dateStr = date.split("T")[0];
         const slotStart = new Date(`${dateStr}T${startTime}`);
         const slotEnd = new Date(`${dateStr}T${endTime}`);
+        
+        // Format datetime for MySQL without timezone information
+        const formatMySQLDateTime = (date: Date): string => {
+          return date.toISOString().slice(0, 19).replace('T', ' ');
+        };
+        
         // Create the slot in the DB
         const slots = await storage.createConsultationSlots(
           Number(teacherId),
-          slotStart.toISOString(),
-          slotEnd.toISOString()
+          formatMySQLDateTime(slotStart),
+          formatMySQLDateTime(slotEnd)
         );
         // Use the first created slot's id
-        realSlotId = slots[0].id;
+        if (slots && slots.length > 0) {
+          realSlotId = slots[0].id;
+        } else {
+          throw new Error("Failed to create consultation slot");
+        }
       }
 
       const booking = await storage.createBooking(realSlotId, student.id, purpose, notes);

@@ -117,7 +117,7 @@ export function ConsultationModal({ isOpen, onClose, consultationId, initialData
 
   const createBookingMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedSlot || !purpose) {
+      if (!selectedSlot || !purpose || !selectedTeacher || !date) {
         throw new Error("Please fill in all required fields");
       }
 
@@ -128,11 +128,14 @@ export function ConsultationModal({ isOpen, onClose, consultationId, initialData
           slotId: selectedSlot.startTime + "-" + selectedSlot.endTime,
           purpose,
           notes,
+          teacherId: selectedTeacher,
+          date: date.toISOString()
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to create booking");
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to create booking");
       }
 
       return response.json();
