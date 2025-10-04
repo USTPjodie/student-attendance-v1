@@ -15,7 +15,8 @@ services:
       - "3306:3306"
     volumes:
       - db_data:/var/lib/mysql
-      - ./server/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./server/schema.sql:/docker-entrypoint-initdb.d/1-schema.sql
+      - ./server/seed-data.sql:/docker-entrypoint-initdb.d/2-seed-data.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 20s

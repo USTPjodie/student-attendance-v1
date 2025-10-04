@@ -33,5 +33,12 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
+    proxy: {
+      "/api": {
+        target: "http://backend:5000",  // Use Docker service name instead of localhost
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
 });
