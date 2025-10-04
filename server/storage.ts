@@ -21,9 +21,8 @@ import {
   teacherAvailability,
   assignments,
 } from "@shared/schema";
-import { db, connection } from './db';
+import { db, pool } from './db';
 import { eq, sql, ne, and } from 'drizzle-orm';
-import { ResultSetHeader } from 'mysql2';
 
 export interface TimeSlot {
   day: string;
@@ -123,29 +122,61 @@ export class DbStorage implements IStorage {
   }
 
   async createUser(user: InsertUser): Promise<User> {
-    const result = await connection.query(
-      'INSERT INTO users (email, password, first_name, last_name, role) VALUES (?, ?, ?, ?, ?)',
-      [user.email, user.password, user.firstName, user.lastName, user.role]
-    );
-    // @ts-ignore
-    return this.getUser(result[0].insertId) as Promise<User>;
+    let connection;
+    try {
+      connection = await pool.getConnection();
+      const result = await connection.query(
+        'INSERT INTO users (email, password, first_name, last_name, role) VALUES (?, ?, ?, ?, ?)',
+        [user.email, user.password, user.firstName, user.lastName, user.role]
+      );
+      connection.release();
+      // @ts-ignore
+      return this.getUser(result[0].insertId) as Promise<User>;
+    } catch (error) {
+      if (connection) connection.release();
+      throw error;
+    }
   }
 
   // Class operations
   async getClasses(): Promise<Class[]> {
-    const [rows] = await connection.query('SELECT * FROM classes ORDER BY created_at DESC');
-    return rows as Class[];
+    let connection;
+    try {
+      connection = await pool.getConnection();
+      const [rows] = await connection.query('SELECT * FROM classes ORDER BY created_at DESC');
+      connection.release();
+      return rows as Class[];
+    } catch (error) {
+      if (connection) connection.release();
+      throw error;
+    }
   }
 
   async getClassesByTeacher(teacherId: number): Promise<Class[]> {
-    const [rows] = await connection.query('SELECT * FROM classes WHERE teacher_id = ? ORDER BY created_at DESC', [teacherId]);
-    return rows as Class[];
+    let connection;
+    try {
+      connection = await pool.getConnection();
+      const [rows] = await connection.query('SELECT * FROM classes WHERE teacher_id = ? ORDER BY created_at DESC', [teacherId]);
+      connection.release();
+      return rows as Class[];
+    } catch (error) {
+      if (connection) connection.release();
+      throw error;
+    }
   }
 
   async getClass(id: number): Promise<Class | undefined> {
-    const [rows] = await connection.query('SELECT * FROM classes WHERE id = ?', [id]);
-    const classes = rows as Class[];
-    return classes.length > 0 ? classes[0] : undefined;
+    let connection;
+    try {
+      connection = await pool.getConnection();
+      const [rows] = await connection.query('SELECT * FROM classes WHERE id = ?', [id]);
+      connection.release();
+      const classes = rows as Class[];
+      return classes.length > 0 ? classes[0] : undefined;
+    } catch (error) {
+      if (connection) connection.release();
+      throw error;
+    }
   }
 
   async createClass(classData: InsertClass): Promise<Class> {

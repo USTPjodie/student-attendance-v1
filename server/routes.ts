@@ -1,15 +1,17 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { storage } from "./storage-fixed";
 import { insertUserSchema, insertClassSchema, insertAttendanceSchema, insertConsultationSchema, type User, type Student } from "@shared/schema";
 import bcrypt from 'bcrypt';
 import { format } from 'date-fns';
-import { connection } from "./db";
+import { getConnection } from "./db-fixed";
 
 // Add type for user with student data
 interface UserWithStudent extends User {
   student?: Student;
 }
+
+import { authenticateUser, getUserById } from './auth-service';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint
@@ -23,30 +25,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Remove role from the destructuring since we'll determine it from the database
       const { email, password } = req.body;
       
-      // Get user by email - the role is stored in the database
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-
-      // Compare password with hashed password
-      const passwordMatch = await bcrypt.compare(password, user.password);
-      if (!passwordMatch) {
+      // Use our new authentication service
+      const authResult = await authenticateUser(email, password);
+      if (!authResult) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
       // Set session with the role from the database
-      (req as any).session.userId = user.id;
-      (req as any).session.userRole = user.role;
+      (req as any).session.userId = authResult.user.id;
+      (req as any).session.userRole = authResult.user.role;
 
-      // Get additional data based on role
-      let userData: UserWithStudent = { ...user };
-      if (user.role === "student") {
-        const student = await storage.getStudentByUserId(user.id);
-        userData = { ...userData, student };
-      }
-
-      res.json({ user: userData });
+      res.json(authResult);
     } catch (error) {
       console.error("Login error:", error);
       res.status(500).json({ message: "Login failed" });
@@ -65,18 +54,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const user = await storage.getUser(userId);
-      if (!user) {
+      // Use our new user service
+      const userResult = await getUserById(userId);
+      if (!userResult) {
         return res.status(401).json({ message: "User not found" });
       }
 
-      let userData: UserWithStudent = { ...user };
-      if (user.role === "student") {
-        const student = await storage.getStudentByUserId(user.id);
-        userData = { ...userData, student };
-      }
-
-      res.json({ user: userData });
+      res.json(userResult);
     } catch (error) {
       console.error("Auth check error:", error);
       res.status(500).json({ message: "Authentication check failed" });
@@ -693,24 +677,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Parsed day: ${dayName}`);
 
       // Query for that specific day
-      const [availabilityRows] = await connection.query(
-        'SELECT * FROM teacher_availability WHERE teacher_id = ? AND day = ?',
-        [teacherId, dayName]
-      );
-      console.log(`Availability rows for ${dayName}:`, availabilityRows);
+      let conn;
+      try {
+        conn = await getConnection();
+        const [availabilityRows] = await conn.query(
+          'SELECT * FROM teacher_availability WHERE teacher_id = ? AND day = ?',
+          [teacherId, dayName]
+        );
+        conn.release();
+        console.log(`Availability rows for ${dayName}:`, availabilityRows);
 
-      if (!availabilityRows || (availabilityRows as any[]).length === 0) {
-        console.log(`No availability found for teacher ${teacherId} on ${dayName}`);
-        return res.json([]); // Return empty array instead of 404
+        if (!availabilityRows || (availabilityRows as any[]).length === 0) {
+          console.log(`No availability found for teacher ${teacherId} on ${dayName}`);
+          return res.json([]); // Return empty array instead of 404
+        }
+
+        const availableSlots = await storage.getAvailableTimeSlots(
+          Number(teacherId),
+          reqDate
+        );
+
+        console.log(`Found ${availableSlots.length} available slots for teacher ${teacherId} on ${dayName}:`, availableSlots);
+        res.json(availableSlots);
+      } catch (error) {
+        if (conn) conn.release();
+        console.error("Error fetching teacher availability:", error);
+        res.status(500).json({ error: "Failed to fetch teacher availability" });
       }
-
-      const availableSlots = await storage.getAvailableTimeSlots(
-        Number(teacherId),
-        reqDate
-      );
-
-      console.log(`Found ${availableSlots.length} available slots for teacher ${teacherId} on ${dayName}:`, availableSlots);
-      res.json(availableSlots);
     } catch (error) {
       console.error("Error fetching teacher availability:", error);
       res.status(500).json({ error: "Failed to fetch teacher availability" });

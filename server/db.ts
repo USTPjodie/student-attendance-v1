@@ -24,52 +24,57 @@ console.log('Attempting to connect to database with config:', {
   database: connectionConfig.database
 });
 
-// Function to create connection with retry logic
-async function createConnectionWithRetry(config: any, maxRetries = 5, delay = 5000) {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      console.log(`Attempting to connect to database (attempt ${i + 1}/${maxRetries})...`);
-      const connection = await mysql.createConnection(config);
-      console.log('Successfully connected to database!');
-      return connection;
-    } catch (error: any) {
-      console.error(`Database connection attempt ${i + 1} failed:`, error.message);
-      if (i < maxRetries - 1) {
-        console.log(`Retrying in ${delay / 1000} seconds...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
+// Create a connection pool instead of a single connection
+const pool = mysql.createPool(connectionConfig);
+
+// Create drizzle instance using the pool
+export const db = drizzle(pool, { schema, mode: 'default' });
+
+// Export pool for direct queries
+export { pool };
+
+// Function to get a connection from the pool with error handling
+export async function getConnection() {
+  try {
+    const connection = await pool.getConnection();
+    return connection;
+  } catch (error) {
+    console.error('Failed to get database connection from pool:', error);
+    throw error;
   }
-  throw new Error(`Failed to connect to database after ${maxRetries} attempts`);
 }
-
-// Create connection with retry logic
-const connection = await createConnectionWithRetry(connectionConfig);
-
-// Create drizzle instance
-export const db = drizzle(connection, { schema, mode: 'default' });
-
-// Export raw connection for direct queries
-export { connection };
 
 // Test database connection
-try {
-  console.log('Successfully connected to MySQL database on port ' + (process.env.DB_PORT || '3306'));
-  
-  // Test query to verify table exists
-  const [tables] = await connection.query('SHOW TABLES');
-  console.log('Available tables:', tables);
-  
-  // Test query to verify teacher availability table structure
-  const [availabilityStructure] = await connection.query('DESCRIBE teacher_availability');
-  console.log('Teacher availability table structure:', availabilityStructure);
-  
-  // Test query to see sample data
-  const [sampleData] = await connection.query('SELECT * FROM teacher_availability WHERE teacher_id = 1 LIMIT 1');
-  // Type assertion to handle mysql2's QueryResult type
-  if (Array.isArray(sampleData) && sampleData.length > 0) {
-    console.log("John Smith's availability sample:", sampleData[0]);
+async function testConnection() {
+  let connection;
+  try {
+    console.log('Testing database connection...');
+    connection = await getConnection();
+    console.log('Successfully connected to MySQL database on port ' + (process.env.DB_PORT || '3306'));
+    
+    // Test query to verify table exists
+    const [tables] = await connection.query('SHOW TABLES');
+    console.log('Available tables:', tables);
+    
+    // Test query to verify teacher availability table structure
+    const [availabilityStructure] = await connection.query('DESCRIBE teacher_availability');
+    console.log('Teacher availability table structure:', availabilityStructure);
+    
+    // Test query to see sample data
+    const [sampleData] = await connection.query('SELECT * FROM teacher_availability WHERE teacher_id = 1 LIMIT 1');
+    // Type assertion to handle mysql2's QueryResult type
+    if (Array.isArray(sampleData) && sampleData.length > 0) {
+      console.log("John Smith's availability sample:", sampleData[0]);
+    }
+    
+    connection.release();
+  } catch (error) {
+    console.error('Database connection error:', error);
+    if (connection) {
+      connection.release();
+    }
   }
-} catch (error) {
-  console.error('Database connection error:', error);
 }
+
+// Run test connection
+testConnection();
