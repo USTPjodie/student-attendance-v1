@@ -4,13 +4,12 @@ services:
   # MySQL Database
   db:
     image: mysql:8.0
-    container_name: attendance_db
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: student_attendance
-      MYSQL_USER: appuser
-      MYSQL_PASSWORD: apppassword
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
     ports:
       - "3306:3306"
     volumes:
@@ -21,34 +20,37 @@ services:
       timeout: 20s
       retries: 10
 
-  # Application - Pre-built and simpler approach
-  app:
-    image: node:18-alpine
-    container_name: attendance_app
+  # Backend API Server
+  backend:
+    build: .
     restart: always
     ports:
-      - "3000:3000"
+      - "5000:5000"
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
       - DB_HOST=db
       - DB_PORT=3306
-      - DB_USER=appuser
-      - DB_PASSWORD=apppassword
-      - DB_NAME=student_attendance
-      - SESSION_SECRET=your-session-secret-here
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - SESSION_SECRET=${SESSION_SECRET}
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - .:/app
-      - /app/node_modules
-    working_dir: /app
-    command: >
-      sh -c "
-        apk add --no-cache python3 make g++ &&
-        npm install &&
-        npm run dev
-      "
+      - ./dist:/app/dist
+
+  # Frontend Server
+  frontend:
+    build: .
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    command: ["npm", "start"]
 
 volumes:
   db_data:
