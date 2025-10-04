@@ -317,11 +317,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log('Received consultation request:', req.body);
 
-      // Parse and validate the date
-      const dateTime = new Date(req.body.dateTime);
+      // Parse and validate the date with timezone handling
+      let dateTime = new Date(req.body.dateTime);
       if (isNaN(dateTime.getTime())) {
         return res.status(400).json({ message: "Invalid date format" });
       }
+
+      // Ensure the dateTime is in Philippine timezone
+      const options: Intl.DateTimeFormatOptions = {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Manila'
+      };
+      const formatter = new Intl.DateTimeFormat('sv-SE', options); // sv-SE uses ISO format
+      const formattedDate = formatter.format(dateTime);
+      dateTime = new Date(formattedDate);
 
       const consultationData = {
         ...req.body,
@@ -521,14 +536,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // If slotId is not a number, treat it as startTime-endTime and create the slot
       if (isNaN(Number(slotId)) && teacherId && date && slotId.includes("-")) {
         const [startTime, endTime] = slotId.split("-");
-        // Compose full ISO strings for the slot
+        // Compose full ISO strings for the slot with Philippine timezone
         const dateStr = date.split("T")[0];
         const slotStart = new Date(`${dateStr}T${startTime}`);
         const slotEnd = new Date(`${dateStr}T${endTime}`);
         
-        // Format datetime for MySQL without timezone information
+        // Format datetime for MySQL with Philippine timezone
         const formatMySQLDateTime = (date: Date): string => {
-          return date.toISOString().slice(0, 19).replace('T', ' ');
+          // Convert to Philippine time before formatting
+          const options: Intl.DateTimeFormatOptions = {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false,
+            timeZone: 'Asia/Manila'
+          };
+          const formatter = new Intl.DateTimeFormat('sv-SE', options); // sv-SE uses ISO format
+          return formatter.format(date);
         };
         
         // Create the slot in the DB
@@ -619,6 +646,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Get available slots error:", error);
       res.status(500).json({ message: "Failed to fetch available slots" });
+    }
+  });
+
+  // Get a specific teacher's availability (for student booking interface)
+  app.get("/api/availability/:teacherId", async (req, res) => {
+    try {
+      const { teacherId } = req.params;
+      
+      const availability = await storage.getTeacherAvailability(Number(teacherId));
+      res.json(availability);
+    } catch (error) {
+      console.error("Get teacher availability error:", error);
+      res.status(500).json({ message: "Failed to fetch teacher availability" });
     }
   });
 

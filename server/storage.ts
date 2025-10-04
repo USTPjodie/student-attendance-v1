@@ -582,7 +582,13 @@ export class DbStorage implements IStorage {
   }
 
   async getAvailableTimeSlots(teacherId: number, date: Date): Promise<TimeSlot[]> {
-    const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
+    // Use Philippine timezone consistently
+    const options: Intl.DateTimeFormatOptions = { 
+      weekday: 'long', 
+      timeZone: 'Asia/Manila' 
+    };
+    const formatter = new Intl.DateTimeFormat('en-US', options);
+    const dayOfWeek = formatter.format(date);
     const formattedDate = date.toISOString().split('T')[0];
 
     // Get teacher's availability for the day
@@ -604,10 +610,10 @@ export class DbStorage implements IStorage {
       const [startHour, startMinute] = availability.start_time.split(':').map(Number);
       const [endHour, endMinute] = availability.end_time.split(':').map(Number);
 
-      let currentTime = new Date(date);
-      currentTime.setHours(startHour, startMinute, 0, 0);
-      const endTime = new Date(date);
-      endTime.setHours(endHour, endMinute, 0, 0);
+      // Create time slots using Philippine timezone consistently
+      const dateStr = date.toISOString().split('T')[0];
+      let currentTime = new Date(`${dateStr}T${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}:00.000+08:00`);
+      const endTime = new Date(`${dateStr}T${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}:00.000+08:00`);
 
       while (currentTime < endTime) {
         const slotEndTime = new Date(currentTime.getTime() + 30 * 60000); // 30 minutes
@@ -620,8 +626,9 @@ export class DbStorage implements IStorage {
 
           // Check if this slot overlaps with any booked slots
           const isBooked = bookedSlots.some(booked => {
-            const bookedStart = new Date(`${formattedDate}T${booked.startTime}`);
-            const bookedEnd = new Date(`${formattedDate}T${booked.endTime}`);
+            // Create dates with consistent timezone handling (Philippine Time)
+            const bookedStart = new Date(`${formattedDate}T${booked.startTime}.000+08:00`);
+            const bookedEnd = new Date(`${formattedDate}T${booked.endTime}.000+08:00`);
             return (
               (currentTime >= bookedStart && currentTime < bookedEnd) ||
               (slotEndTime > bookedStart && slotEndTime <= bookedEnd) ||
@@ -641,7 +648,10 @@ export class DbStorage implements IStorage {
   }
 
   async getBookedTimeSlots(teacherId: number, date: Date): Promise<TimeSlot[]> {
+    // Format date in MySQL DATE format (YYYY-MM-DD)
     const formattedDate = date.toISOString().split('T')[0];
+    
+    // Get booked time slots from both consultations (approved) and bookings (pending)
     const [rows] = await connection.query(`
       SELECT 
         DATE_FORMAT(date_time, '%W') as day,
@@ -650,8 +660,20 @@ export class DbStorage implements IStorage {
       FROM consultations 
       WHERE teacher_id = ? 
       AND DATE(date_time) = ?
-      AND status = 'approved'
-    `, [teacherId, formattedDate]);
+      AND status IN ('approved', 'pending', 'completed')
+      
+      UNION
+      
+      SELECT 
+        DATE_FORMAT(cs.start_time, '%W') as day,
+        DATE_FORMAT(cs.start_time, '%H:%i:%s') as startTime,
+        DATE_FORMAT(cs.end_time, '%H:%i:%s') as endTime
+      FROM bookings b
+      JOIN consultation_slots cs ON b.slot_id = cs.id
+      WHERE cs.teacher_id = ? 
+      AND DATE(cs.start_time) = ?
+      AND b.status = 'pending'
+    `, [teacherId, formattedDate, teacherId, formattedDate]);
 
     return (rows as any[]).map(row => ({
       day: row.day,

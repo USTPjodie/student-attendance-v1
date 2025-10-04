@@ -156,6 +156,20 @@ export default function StudentDashboard() {
     return "bg-slate-100 text-slate-800";
   };
 
+  // Helper function to format dates in Philippine timezone
+  const formatPhilippineDate = (date: Date, formatString: string) => {
+    const options: Intl.DateTimeFormatOptions = {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: true,
+      timeZone: 'Asia/Manila'
+    };
+    return new Intl.DateTimeFormat('en-US', options).format(date);
+  };
+
   if (!studentClasses) {
     return <div>Loading...</div>;
   }
@@ -368,7 +382,7 @@ export default function StudentDashboard() {
                           
                           <div className="flex items-center text-sm text-slate-600 mt-2">
                             <Clock className="w-4 h-4 mr-1" />
-                            {consultation.dateTime ? format(new Date(consultation.dateTime), "MMM d, yyyy h:mm a") : "Date not set"}
+                            {consultation.dateTime ? formatPhilippineDate(new Date(consultation.dateTime), "MMM d, yyyy h:mm a") : "Date not set"}
                           </div>
                           
                           {consultation.notes && (

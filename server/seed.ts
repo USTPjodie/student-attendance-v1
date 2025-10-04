@@ -34,13 +34,18 @@ async function seedDatabase() {
     await db.execute('TRUNCATE TABLE classes;');
     await db.execute('TRUNCATE TABLE class_enrollments;');
     await db.execute('TRUNCATE TABLE attendance_records;');
+    await db.execute('TRUNCATE TABLE teacher_availability;');
+    await db.execute('TRUNCATE TABLE consultation_slots;');
+    await db.execute('TRUNCATE TABLE bookings;');
     await db.execute('TRUNCATE TABLE consultations;');
     await db.execute('TRUNCATE TABLE assignments;');
     await db.execute('TRUNCATE TABLE grades;');
     await db.execute('SET FOREIGN_KEY_CHECKS = 1;');
 
     for (const command of commands) {
-      await db.execute(command);
+      if (command.trim()) {
+        await db.execute(command);
+      }
     }
 
     console.log('Database seeded successfully!');
@@ -51,4 +56,4 @@ async function seedDatabase() {
   }
 }
 
-seedDatabase(); 
+seedDatabase();

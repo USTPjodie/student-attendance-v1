@@ -12,8 +12,9 @@ const connectionConfig = {
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  timezone: '+00:00', // Use UTC for consistency
-  charset: 'utf8mb4_unicode_ci'
+  timezone: '+08:00', // Use Philippine time for consistency
+  charset: 'utf8mb4_unicode_ci',
+  connectTimeout: 30000, // 30 seconds timeout
 };
 
 console.log('Attempting to connect to database with config:', {
@@ -23,7 +24,27 @@ console.log('Attempting to connect to database with config:', {
   database: connectionConfig.database
 });
 
-const connection = await mysql.createConnection(connectionConfig);
+// Function to create connection with retry logic
+async function createConnectionWithRetry(config: any, maxRetries = 5, delay = 5000) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      console.log(`Attempting to connect to database (attempt ${i + 1}/${maxRetries})...`);
+      const connection = await mysql.createConnection(config);
+      console.log('Successfully connected to database!');
+      return connection;
+    } catch (error: any) {
+      console.error(`Database connection attempt ${i + 1} failed:`, error.message);
+      if (i < maxRetries - 1) {
+        console.log(`Retrying in ${delay / 1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw new Error(`Failed to connect to database after ${maxRetries} attempts`);
+}
+
+// Create connection with retry logic
+const connection = await createConnectionWithRetry(connectionConfig);
 
 // Create drizzle instance
 export const db = drizzle(connection, { schema, mode: 'default' });
@@ -39,20 +60,16 @@ try {
   const [tables] = await connection.query('SHOW TABLES');
   console.log('Available tables:', tables);
   
-  // Test teacher_availability table
-  const [columns] = await connection.query('DESCRIBE teacher_availability');
-  console.log('Teacher availability table structure:', columns);
-
-  // Test John Smith's availability if exists
-  const [johnAvailabilityRows] = await connection.query(
-    'SELECT * FROM teacher_availability WHERE teacher_id = 1 LIMIT 1'
-  );
-  // @ts-ignore
-  if (johnAvailabilityRows.length > 0) {
-    // @ts-ignore
-    console.log('John Smith\'s availability sample:', johnAvailabilityRows[0]);
+  // Test query to verify teacher availability table structure
+  const [availabilityStructure] = await connection.query('DESCRIBE teacher_availability');
+  console.log('Teacher availability table structure:', availabilityStructure);
+  
+  // Test query to see sample data
+  const [sampleData] = await connection.query('SELECT * FROM teacher_availability WHERE teacher_id = 1 LIMIT 1');
+  // Type assertion to handle mysql2's QueryResult type
+  if (Array.isArray(sampleData) && sampleData.length > 0) {
+    console.log("John Smith's availability sample:", sampleData[0]);
   }
 } catch (error) {
-  console.error('Error connecting to MySQL:', error);
-  process.exit(1);
+  console.error('Database connection error:', error);
 }

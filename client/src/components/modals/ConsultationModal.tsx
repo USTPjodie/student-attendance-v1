@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
 import {
   Select,
   SelectContent,
@@ -48,6 +49,7 @@ interface EnrolledClass {
 }
 
 interface TimeSlot {
+  day: string;
   startTime: string;
   endTime: string;
 }
@@ -105,7 +107,15 @@ export function ConsultationModal({ isOpen, onClose, consultationId, initialData
     queryKey: ["/api/availability", selectedTeacher, date],
     queryFn: async () => {
       if (!selectedTeacher || !date) return [];
-      const dateStr = date.toISOString().split('T')[0];
+      // Format date in Philippine timezone
+      const options: Intl.DateTimeFormatOptions = {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        timeZone: 'Asia/Manila'
+      };
+      const formatter = new Intl.DateTimeFormat('sv-SE', options); // sv-SE uses ISO format
+      const dateStr = formatter.format(date);
       const response = await fetch(`/api/availability/${selectedTeacher}/slots?date=${dateStr}`);
       if (!response.ok) {
         throw new Error("Failed to fetch available slots");
@@ -114,6 +124,61 @@ export function ConsultationModal({ isOpen, onClose, consultationId, initialData
     },
     enabled: !!selectedTeacher && !!date,
   });
+
+  // Fetch teacher's overall availability to highlight dates in the calendar
+  const { data: teacherAvailability } = useQuery<TimeSlot[]>({
+    queryKey: ["/api/availability", selectedTeacher],
+    queryFn: async () => {
+      if (!selectedTeacher) return [];
+      const response = await fetch(`/api/availability/${selectedTeacher}`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch teacher availability");
+      }
+      return response.json();
+    },
+    enabled: !!selectedTeacher,
+  });
+
+  // Get booked time slots for the selected date
+  const { data: bookedSlots, isLoading: isLoadingBookedSlots } = useQuery<string[]>({
+    queryKey: ["/api/consultations/booked-slots", selectedTeacher, date],
+    queryFn: async () => {
+      if (!selectedTeacher || !date) return [];
+      const response = await fetch(
+        `/api/consultations/booked-slots?teacherId=${selectedTeacher}&date=${date.toISOString()}`
+      );
+      if (!response.ok) {
+        throw new Error("Failed to fetch booked slots");
+      }
+      return response.json();
+    },
+    enabled: !!selectedTeacher && !!date,
+  });
+
+  // Function to determine if a date has teacher availability
+  const isDateAvailable = (dateToCheck: Date) => {
+    if (!teacherAvailability || teacherAvailability.length === 0) return false;
+    
+    // Use Philippine timezone to avoid timezone conflicts
+    const options: Intl.DateTimeFormatOptions = { weekday: 'long', timeZone: 'Asia/Manila' };
+    const formatter = new Intl.DateTimeFormat('en-US', options);
+    const dayName = formatter.format(dateToCheck);
+    
+    return teacherAvailability.some(slot => slot.day === dayName);
+  };
+
+  // Function to style dates in the calendar
+  const highlightAvailableDates = (dateToCheck: Date) => {
+    if (isDateAvailable(dateToCheck)) {
+      return {
+        backgroundColor: '#dbeafe', // Light blue background for available dates
+        color: '#1e40af', // Dark blue text for available dates
+        fontWeight: 'bold',
+        borderRadius: '50%',
+      };
+    }
+    return {};
+  };
 
   const createBookingMutation = useMutation({
     mutationFn: async () => {
@@ -217,26 +282,53 @@ export function ConsultationModal({ isOpen, onClose, consultationId, initialData
                   selected={date}
                   onSelect={setDate}
                   className="rounded-md border"
+                  weekStartsOn={1} // Start week on Monday
+                  // Add modifiers to highlight available dates
+                  modifiers={{
+                    available: (date) => isDateAvailable(date)
+                  }}
+                  modifiersStyles={{
+                    available: {
+                      backgroundColor: '#dbeafe',
+                      color: '#1e40af',
+                      fontWeight: 'bold',
+                    }
+                  }}
+                  // Disable dates more than 30 days in the future
+                  disabled={(date) => {
+                    const today = new Date();
+                    const thirtyDaysFromNow = new Date();
+                    thirtyDaysFromNow.setDate(today.getDate() + 30);
+                    return date < today || date > thirtyDaysFromNow;
+                  }}
                 />
               </div>
               {/* Time Slots */}
               <div className="flex-1 space-y-2">
                 <Label>Available Time Slots</Label>
                 {date ? (
-                  isLoadingSlots ? (
+                  isLoadingSlots || isLoadingBookedSlots ? (
                     <div className="text-muted-foreground">Loading slots...</div>
                   ) : availableSlots && availableSlots.length > 0 ? (
                     <div className="grid grid-cols-1 gap-2">
-                      {availableSlots.map((slot) => (
-                        <Button
-                          key={slot.startTime + slot.endTime}
-                          variant={selectedSlot?.startTime === slot.startTime && selectedSlot?.endTime === slot.endTime ? "default" : "outline"}
-                          onClick={() => setSelectedSlot(slot)}
-                          className="w-full"
-                        >
-                          {slot.startTime} - {slot.endTime}
-                        </Button>
-                      ))}
+                      {availableSlots.map((slot) => {
+                        // Ensure consistent time formatting for comparison
+                        const slotTime = slot.startTime.slice(0, 5); // Extract HH:MM format
+                        const isBooked = bookedSlots && bookedSlots.some((bookedSlot: string) => 
+                          bookedSlot.startsWith(slotTime)
+                        );
+                        return (
+                          <Button
+                            key={slot.startTime + slot.endTime}
+                            variant={selectedSlot?.startTime === slot.startTime && selectedSlot?.endTime === slot.endTime ? "default" : "outline"}
+                            onClick={() => !isBooked && setSelectedSlot(slot)}
+                            disabled={isBooked}
+                            className={`w-full ${isBooked ? "opacity-50 cursor-not-allowed" : ""}`}
+                          >
+                            {slot.startTime.slice(0, 5)} - {slot.endTime.slice(0, 5)} {isBooked && "(Booked)"}
+                          </Button>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-muted-foreground">No available slots for this date.</div>

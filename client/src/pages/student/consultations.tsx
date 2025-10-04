@@ -108,8 +108,17 @@ export default function StudentConsultationsScreen() {
     queryKey: ["/api/availability", selectedTeacher, selectedDate],
     queryFn: async () => {
       if (!selectedTeacher || !selectedDate) return [];
+      // Format date in Philippine timezone
+      const options: Intl.DateTimeFormatOptions = {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        timeZone: 'Asia/Manila'
+      };
+      const formatter = new Intl.DateTimeFormat('sv-SE', options); // sv-SE uses ISO format
+      const dateStr = formatter.format(selectedDate);
       const response = await fetch(
-        `/api/availability/${selectedTeacher}/slots?date=${selectedDate.toISOString()}`
+        `/api/availability/${selectedTeacher}/slots?date=${dateStr}`
       );
       if (!response.ok) {
         throw new Error("Failed to fetch available time slots");
@@ -118,6 +127,32 @@ export default function StudentConsultationsScreen() {
     },
     enabled: !!selectedTeacher && !!selectedDate,
   });
+
+  // Fetch teacher's overall availability to highlight dates in the calendar
+  const { data: teacherAvailability } = useQuery<TimeSlot[]>({
+    queryKey: ["/api/availability", selectedTeacher],
+    queryFn: async () => {
+      if (!selectedTeacher) return [];
+      const response = await fetch(`/api/availability/${selectedTeacher}`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch teacher availability");
+      }
+      return response.json();
+    },
+    enabled: !!selectedTeacher,
+  });
+
+  // Function to determine if a date has teacher availability
+  const isDateAvailable = (dateToCheck: Date) => {
+    if (!teacherAvailability || teacherAvailability.length === 0) return false;
+    
+    // Use Philippine timezone to avoid timezone conflicts
+    const options: Intl.DateTimeFormatOptions = { weekday: 'long', timeZone: 'Asia/Manila' };
+    const formatter = new Intl.DateTimeFormat('en-US', options);
+    const dayName = formatter.format(dateToCheck);
+    
+    return teacherAvailability.some(slot => slot.day === dayName);
+  };
 
   // Get booked time slots for the selected date
   const { data: bookedSlots, isLoading: isLoadingBookedSlots } = useQuery<string[]>({
@@ -227,6 +262,35 @@ export default function StudentConsultationsScreen() {
       default:
         return "bg-gray-100 text-gray-800";
     }
+  };
+
+  // Helper function to format dates in Philippine timezone
+  const formatPhilippineDate = (date: Date, formatString: string) => {
+    // For "PPP p" format, we'll manually format
+    if (formatString === "PPP p") {
+      const options: Intl.DateTimeFormatOptions = {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: true,
+        timeZone: 'Asia/Manila'
+      };
+      return new Intl.DateTimeFormat('en-US', options).format(date);
+    }
+    
+    // For "MMM d, yyyy h:mm a" format
+    const options: Intl.DateTimeFormatOptions = {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: true,
+      timeZone: 'Asia/Manila'
+    };
+    return new Intl.DateTimeFormat('en-US', options).format(date);
   };
 
   const pendingConsultations = consultations?.filter((c) => c.status === "pending") ?? [];
@@ -359,7 +423,7 @@ export default function StudentConsultationsScreen() {
                           <p className="text-muted-foreground">{consultation.purpose}</p>
                           <div className="flex items-center text-sm text-muted-foreground">
                             <Clock className="w-4 h-4 mr-1" />
-                            {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+                            {consultation.dateTime ? formatPhilippineDate(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
                           </div>
                           {consultation.notes && (
                             <p className="text-sm text-muted-foreground mt-1">
@@ -397,7 +461,7 @@ export default function StudentConsultationsScreen() {
                           <p className="text-muted-foreground">{consultation.purpose}</p>
                           <div className="flex items-center text-sm text-muted-foreground">
                             <Clock className="w-4 h-4 mr-1" />
-                            {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+                            {consultation.dateTime ? formatPhilippineDate(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
                           </div>
                           {consultation.notes && (
                             <p className="text-sm text-muted-foreground mt-1">
@@ -435,7 +499,7 @@ export default function StudentConsultationsScreen() {
                           <p className="text-muted-foreground">{consultation.purpose}</p>
                           <div className="flex items-center text-sm text-muted-foreground">
                             <Clock className="w-4 h-4 mr-1" />
-                            {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+                            {consultation.dateTime ? formatPhilippineDate(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
                           </div>
                           {consultation.notes && (
                             <p className="text-sm text-muted-foreground mt-1">
@@ -473,7 +537,7 @@ export default function StudentConsultationsScreen() {
                           <p className="text-muted-foreground">{consultation.purpose}</p>
                           <div className="flex items-center text-sm text-muted-foreground">
                             <Clock className="w-4 h-4 mr-1" />
-                            {consultation.dateTime ? format(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
+                            {consultation.dateTime ? formatPhilippineDate(new Date(consultation.dateTime.replace(' ', 'T')), "PPP p") : "No date set"}
                           </div>
                           {consultation.notes && (
                             <p className="text-sm text-muted-foreground mt-1">
@@ -580,12 +644,27 @@ export default function StudentConsultationsScreen() {
                     <CalendarComponent
                       mode="single"
                       selected={selectedDate}
-                      onSelect={(date) => {
-                        setSelectedDate(date);
-                        setSelectedTimeSlot(null);
-                      }}
+                      onSelect={(date: Date | undefined) => setSelectedDate(date)}
                       className="rounded-md border"
-                      disabled={(date) => date < new Date()}
+                      weekStartsOn={1} // Start week on Monday
+                      // Add modifiers to highlight available dates
+                      modifiers={{
+                        available: (date: Date) => isDateAvailable(date)
+                      }}
+                      modifiersStyles={{
+                        available: {
+                          backgroundColor: '#dbeafe',
+                          color: '#1e40af',
+                          fontWeight: 'bold',
+                        }
+                      }}
+                      // Disable dates more than 30 days in the future
+                      disabled={(date: Date) => {
+                        const today = new Date();
+                        const thirtyDaysFromNow = new Date();
+                        thirtyDaysFromNow.setDate(today.getDate() + 30);
+                        return date < today || date > thirtyDaysFromNow;
+                      }}
                     />
                   </div>
 
@@ -597,17 +676,24 @@ export default function StudentConsultationsScreen() {
                           <Loader2 className="h-6 w-6 animate-spin" />
                         </div>
                       ) : timeSlots.length > 0 ? (
-                        timeSlots.map((time) => (
-                          <Button
-                            key={time}
-                            type="button"
-                            variant={selectedTimeSlot === time ? "default" : "outline"}
-                            onClick={() => setSelectedTimeSlot(time)}
-                            className="w-full"
-                          >
-                            {time}
-                          </Button>
-                        ))
+                        timeSlots.map((time) => {
+                          // Ensure consistent time formatting for comparison
+                          const isBooked = bookedSlots && bookedSlots.some((bookedSlot: string) => 
+                            bookedSlot.startsWith(time)
+                          );
+                          return (
+                            <Button
+                              key={time}
+                              type="button"
+                              variant={selectedTimeSlot === time ? "default" : "outline"}
+                              onClick={() => !isBooked && setSelectedTimeSlot(time)}
+                              disabled={isBooked}
+                              className={`w-full ${isBooked ? "opacity-50 cursor-not-allowed" : ""}`}
+                            >
+                              {time} {isBooked && "(Booked)"}
+                            </Button>
+                          );
+                        })
                       ) : (
                         <div className="col-span-2 text-center text-muted-foreground py-4">
                           {selectedDate ? "No available slots for this date" : "Select a date to see available slots"}
