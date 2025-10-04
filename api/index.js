@@ -28,15 +28,14 @@ app.use((req, res, next) => {
   }
 });
 
-// Import and register routes
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// Dynamically import the routes
-const { registerRoutes } = await import('../server/routes.js');
-
-// Register all API routes
-await registerRoutes(app);
+// Health check endpoint for Vercel
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    message: 'Vercel API is working correctly'
+  });
+});
 
 // Export for Vercel
 export default serverless(app);
